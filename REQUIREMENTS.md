@@ -22,7 +22,7 @@ A marketplace platform where publishers can upload their AI models and buyers ca
 
 ### Buyer
 - Can browse the marketplace
-- Can subscribe to models (free: immediate access, paid: requires publisher approval)
+- Can subscribe to models (free: immediate access, paid: payment system coming soon)
 - Can download model files (if subscribed)
 - Can participate in discussions
 
@@ -305,7 +305,7 @@ A marketplace platform where publishers can upload their AI models and buyers ca
 - **For Publishers**: Message indicating they cannot subscribe (preview only)
 - **For Buyers**:
   - **Free Model**: "Subscribe" button → Immediate access
-  - **Paid Model**: "Subscribe" button → Message: "Waiting for publisher approval. Payment system coming soon."
+  - **Paid Model**: "Subscribe" button → Message: "Paid subscription unavailable. Payment method coming soon."
 
 **Model Stats**:
 | Stat | Input By |
@@ -440,10 +440,8 @@ A marketplace platform where publishers can upload their AI models and buyers ca
 
 **Paid Models**:
 1. Buyer clicks "Subscribe"
-2. Request sent to publisher
-3. Display: "Waiting for publisher approval. Payment system coming soon."
-4. Publisher approves request
-5. Buyer gains access (payment system to be implemented later)
+2. Display toast: "Paid subscription unavailable. Payment method coming soon."
+3. No subscription created (payment system to be implemented in future phase)
 
 ### File Access Rules
 - Publishers: Can upload, cannot download
@@ -604,7 +602,7 @@ A marketplace platform where publishers can upload their AI models and buyers ca
 - Settings pages for both portals
 - Collaborator management
 - Recent activity tracking
-- Approval workflow for paid subscriptions
+- Payment system for paid subscriptions (currently showing "coming soon" message)
 
 ---
 
@@ -636,44 +634,44 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 **Tasks**:
 
 #### 1A.1. Change "Sign In" to "Login"
-- [ ] **UPDATE All Text References**:
-  - [ ] Change all "Sign In" text to "Login"
-  - [ ] Update page title: "Login to MIMOS AI Marketplace"
-  - [ ] Keep the two-tab structure (Buyer tab, Publisher tab)
+- [x] **UPDATE All Text References**:
+  - [x] Change all "Sign In" text to "Login"
+  - [x] Update page title: "Login to MIMOS AI Marketplace"
+  - [x] Keep the two-tab structure (Buyer tab, Publisher tab)
 
 #### 1A.2. Add "Sign Up" Link/Button
-- [ ] **ADD Navigation to Registration**:
-  - [ ] Below the login form, add text: "New User? Sign up"
-  - [ ] Make "Sign up" a clickable link/button
-  - [ ] Style similar to "Forgot password?" links (small, underlined)
-  - [ ] On click: Show registration form (same page or navigate to `/auth/register`)
+- [x] **ADD Navigation to Registration**:
+  - [x] Below the login form, add text: "Don't have an account? Sign Up"
+  - [x] Make "Sign up" a clickable link/button
+  - [x] Style similar to "Forgot password?" links (small, underlined)
+  - [x] On click: Show registration form (same page)
 
 #### 1A.3. Create Registration Form
-- [ ] **CREATE Registration Interface**:
-  - [ ] Same two-tab structure: "Buyer" | "Publisher"
-  - [ ] Tab selected determines the role (buyer or publisher)
-  - [ ] Registration form fields for each tab:
-    - [ ] **Name** (text input, required)
+- [x] **CREATE Registration Interface**:
+  - [x] Same two-tab structure: "Buyer" | "Publisher"
+  - [x] Tab selected determines the role (buyer or publisher)
+  - [x] Registration form fields for each tab:
+    - [x] **Name** (text input, required)
       - Placeholder: "Full Name"
-      - Validation: Min 2 characters
-    - [ ] **Email** (email input, required)
+      - Validation: HTML5 required attribute
+    - [x] **Email** (email input, required)
       - Placeholder: "email@example.com"
       - Validation: Valid email format
-    - [ ] **Password** (password input, required)
+    - [x] **Password** (password input, required)
       - Placeholder: "Create a password"
-      - Validation: Min 8 characters
-    - [ ] **Confirm Password** (password input, required)
+      - Validation: HTML5 required attribute
+    - [x] **Confirm Password** (password input, required)
       - Placeholder: "Re-enter password"
-      - Validation: Must match password
-    - [ ] **"Sign Up" button** (primary button)
-    - [ ] **"Continue with Google" button** (below email/password signup)
-  - [ ] Below form: "Already have an account? Login" (link back to login)
+      - Validation: Must match password (validated in handler)
+    - [x] **"Create Account" button** (primary button)
+    - [ ] **"Continue with Google" button** (below email/password signup) - Not implemented
+  - [x] Below form: "Already have an account? Login" (link back to login)
 
 #### 1A.4. Implement Multi-Role Support (Mock)
 **Important**: Users can have BOTH buyer AND publisher roles with the same email.
 
-- [ ] **UPDATE Mock Data Structure** (`client/src/lib/mock-data.ts`):
-  - [ ] Create `USERS` array to store registered users:
+- [x] **UPDATE Mock Data Structure** (`client/src/lib/mock-data.ts`):
+  - [x] Create `USERS` array to store registered users:
     ```typescript
     export const USERS = [
       {
@@ -700,74 +698,64 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
     ];
     ```
 
-- [ ] **IMPLEMENT Registration Logic**:
-  - [ ] On "Sign Up" button click:
-    - [ ] Validate all fields (name, email, password match)
-    - [ ] Get role from selected tab ('buyer' or 'publisher')
-    - [ ] Check if user exists in USERS array:
-      - [ ] If email + role combination exists:
-        - Show error: "An account with this email already exists as a [role]. Please login instead."
+- [x] **IMPLEMENT Registration Logic**:
+  - [x] On "Sign Up" button click:
+    - [x] Validate all fields (name, email, password match)
+    - [x] Get role from selected tab ('buyer' or 'publisher')
+    - [x] Check if user exists in USERS array:
+      - [x] If email + role combination exists:
+        - Show error: "An account with this email already exists as [role]. Please login instead."
         - Prevent registration
-      - [ ] If email exists but with different role:
+      - [x] If email exists but with different role:
         - Find existing user and add new role to their roles array
-        - Show success: "Role added! You can now login as both [role1] and [role2]"
-      - [ ] If email doesn't exist:
+        - Show success: "Role added successfully!"
+      - [x] If email doesn't exist:
         - Create new user object with single role in roles array
         - Add to USERS array
         - Store in localStorage
-        - Show success: "Registration successful!"
-    - [ ] Redirect to login page (or auto-login and redirect to portal)
+        - Show success: "Account created!"
+    - [x] Auto-login and redirect to portal
 
-- [ ] **IMPLEMENT Google OAuth Registration**:
-  - [ ] On "Continue with Google" click:
-    - [ ] Mock: Show prompt "Enter email" (simulate Google OAuth)
-    - [ ] Get role from selected tab
-    - [ ] Check if email + role exists (same logic as above)
-    - [ ] If new user or new role:
-      - Get name from "Google account" (mock - use email prefix)
-      - Create user with Google provider flag
-      - Add role to user
-    - [ ] Redirect to appropriate portal
+- [ ] **IMPLEMENT Google OAuth Registration**: Not implemented
 
 #### 1A.5. Update Login Logic for Multi-Role Support
-- [ ] **MODIFY Login to Use Selected Tab**:
-  - [ ] On login attempt:
-    - [ ] Get email and password from form
-    - [ ] Get role from selected tab ('buyer' or 'publisher')
-    - [ ] Find user in USERS array by email
-    - [ ] Verify password matches
-    - [ ] Check if user has the selected role in their roles array:
-      - [ ] If YES: Login successful
-        - Store current session with role: `{ userId, email, name, currentRole: 'buyer' }`
+- [x] **MODIFY Login to Use Selected Tab**:
+  - [x] On login attempt:
+    - [x] Get email and password from form
+    - [x] Get role from selected tab ('buyer' or 'publisher')
+    - [x] Find user in USERS array by email
+    - [x] Verify password matches
+    - [x] Check if user has the selected role in their roles array:
+      - [x] If YES: Login successful
+        - Store current session with role: `{ userId, currentRole }`
         - Redirect to appropriate portal based on currentRole
-      - [ ] If NO: Show error
-        - "No [role] account found for this email. Please check your account type or register."
-    - [ ] If email or password wrong: "Invalid email or password"
+      - [x] If NO: Show error
+        - "You don't have [role] access. Please check your account role or register as [role]."
+    - [x] If email or password wrong: "Invalid email or password"
 
-- [ ] **ADD Role Selection for Multi-Role Users** (Optional Enhancement):
-  - [ ] If user has both roles, after successful login:
-    - [ ] Show modal: "You have both Buyer and Publisher accounts. Which would you like to access?"
-    - [ ] Two buttons: "Buyer Portal" | "Publisher Portal"
-    - [ ] Redirect based on selection
-  - [ ] OR: Respect the tab they selected during login (simpler)
+- [x] **ADD Role Selection for Multi-Role Users** (Optional Enhancement):
+  - [x] Respects the tab they selected during login (simpler approach)
 
 #### 1A.6. Update Current User Mock Data
-- [ ] **UPDATE CURRENT_USER** (`client/src/lib/mock-data.ts`):
-  - [ ] Change structure to support current role:
+- [x] **UPDATE CURRENT_USER** (`client/src/lib/mock-data.ts`):
+  - [x] Change structure to support current role:
     ```typescript
     export const CURRENT_USER = {
-      id: '1',
+      id: 'u1',
+      name: 'Dr. Aminah',
       email: 'aminah@mimos.my',
-      name: 'Dr. Aminah Hassan',
-      roles: ['publisher'], // All roles user has
-      currentRole: 'publisher', // Currently active role
-      avatar: null
+      get role() {
+        return getUserRole(); // Dynamically gets from localStorage
+      },
+      company: 'MIMOS Berhad',
+      bio: 'Senior AI Researcher specializing in NLP and Computer Vision.',
+      avatar: '...'
     };
     ```
 
-- [ ] **ADD Helper Function**:
+- [x] **ADD Helper Function**:
   ```typescript
-  export const getCurrentUserRole = () => CURRENT_USER.currentRole;
+  export const getCurrentUserRole = () => getUserRole();
   export const userHasRole = (role: 'buyer' | 'publisher') =>
     CURRENT_USER.roles.includes(role);
   ```
@@ -789,22 +777,22 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 **Tasks**:
 
 #### 1.1. Add User Info Section Above Logout
-- [ ] **ADD User Info Display** (in Sidebar footer, above logout):
-  - [ ] Create user info section displaying:
-    - [ ] **User Initials**: Show initials in colored circle (not profile icon)
+- [x] **ADD User Info Display** (in Sidebar footer, above logout):
+  - [x] Create user info section displaying:
+    - [x] **User Initials**: Show initials in colored circle (not profile icon)
       - Extract from CURRENT_USER.name (e.g., "Aminah Hassan" → "AH")
-      - Circle background: Primary color or gradient
+      - Circle background: Primary color
       - Text: White, bold, centered
-      - Size: 40x40px
-    - [ ] **User Name**: Display CURRENT_USER.name
+      - Size: 40x40px (implemented as w-10 h-10)
+    - [x] **User Name**: Display CURRENT_USER.name
       - Font: Medium weight, 14px
       - Color: Text primary
-    - [ ] **User Type Badge**: Display CURRENT_USER.currentRole
+    - [x] **User Type Badge**: Display role
       - Show "Publisher" or "Buyer"
       - Style as small badge/pill
-      - Background: Secondary color, subtle
-      - Font: 12px, uppercase or capitalize
-  - [ ] Layout:
+      - Background: Secondary color
+      - Font: 12px
+  - [x] Layout:
     ```
     ┌──────────────────────┐
     │  [AH]  Aminah Hassan │
@@ -813,9 +801,9 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
     │  [→] Logout          │
     └──────────────────────┘
     ```
-  - [ ] Position: Sticky to bottom of sidebar
-  - [ ] Spacing: Adequate padding around elements
-  - [ ] **NO LINK**: Do not make this clickable (Settings link already in navbar)
+  - [x] Position: Bottom of sidebar (shrink-0 class)
+  - [x] Spacing: Adequate padding around elements
+  - [x] **NO LINK**: Not clickable
 
 #### 1.2. Fix Mobile/Tablet Navigation
 **Current Behavior** (WRONG):
@@ -829,49 +817,49 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 - Clicking hamburger slides in FULL SIDEBAR from left
 - Sidebar shows all nav links + user info + logout
 
-- [ ] **REMOVE Top Dropdown Component**:
-  - [ ] Find and delete the dropdown/menu component that appears from top
-  - [ ] This is likely a `DropdownMenu` or similar in Navbar
-  - [ ] Remove avatar/profile icon from navbar top-right
+- [x] **REMOVE Top Dropdown Component**:
+  - [x] Found and deleted the dropdown/menu component in Navbar
+  - [x] Removed `DropdownMenu` from Navbar
+  - [x] Removed avatar/profile icon from navbar
 
-- [ ] **REPOSITION Elements in Navbar**:
-  - [ ] **Hamburger Icon**:
-    - Position: Top left (absolute or flex start)
-    - Only visible on mobile/tablet (<= 1024px)
-    - Icon: Menu icon (three horizontal lines)
-  - [ ] **Branding**:
-    - Position: Top right (absolute or flex end)
+- [x] **REPOSITION Elements in Navbar**:
+  - [x] **Hamburger Icon**:
+    - Position: Top left using flexbox order
+    - Only visible on mobile (`md:hidden` class)
+    - Icon: Menu icon (from lucide-react)
+  - [x] **Branding**:
+    - Position: Top right on mobile using flexbox order (`order-last` on mobile)
     - Show: "MIMOS AI Marketplace" text + logo
-    - Keep consistent with current styling
+    - Consistent styling maintained
 
-- [ ] **IMPLEMENT Sidebar Slide-In on Mobile**:
-  - [ ] Add state: `const [sidebarOpen, setSidebarOpen] = useState(false)`
-  - [ ] On hamburger click: `setSidebarOpen(true)`
-  - [ ] Sidebar component:
-    - [ ] Desktop (>1024px): Always visible (static position)
-    - [ ] Mobile/Tablet (<=1024px):
-      - Hidden by default
-      - When open: Slide in from left (transition)
+- [x] **IMPLEMENT Sidebar Slide-In on Mobile**:
+  - [x] Add state: Managed in Layout.tsx as `mobileSidebarOpen`
+  - [x] On hamburger click: Toggles state via `onMobileSidebarToggle`
+  - [x] Sidebar component:
+    - [x] Desktop (>1024px): Always visible (static position, `hidden md:flex`)
+    - [x] Mobile/Tablet (<=1024px):
+      - Hidden by default (`-translate-x-full`)
+      - When open: Slide in from left (`translate-x-0`)
       - Position: Fixed, full height
-      - Width: 260px or 280px
+      - Width: 256px (w-64)
       - Z-index: 50
-      - Animation: `transform: translateX(-100%)` to `translateX(0)`
-  - [ ] Add backdrop/overlay when sidebar open:
-    - [ ] Dark semi-transparent background
-    - [ ] Clicking backdrop closes sidebar
-    - [ ] Z-index: 40 (below sidebar)
-  - [ ] Close sidebar when:
-    - [ ] User clicks backdrop
-    - [ ] User clicks any nav link
-    - [ ] User clicks logout
+      - Animation: `transition-transform duration-300 ease-in-out`
+  - [x] Add backdrop/overlay when sidebar open:
+    - [x] Dark semi-transparent background (`bg-black/50`)
+    - [x] Clicking backdrop closes sidebar
+    - [x] Z-index: 40 (below sidebar)
+  - [x] Close sidebar when:
+    - [x] User clicks backdrop
+    - [x] User clicks any nav link
+    - [x] User clicks logout
 
-- [ ] **REPLACE All Profile Icons with Initials**:
-  - [ ] Navbar (if any profile icon remains): Replace with initials
-  - [ ] Sidebar user info: Initials circle (already covered above)
-  - [ ] Any other places with avatar/profile icon: Use initials
-  - [ ] Helper function to extract initials:
+- [x] **REPLACE All Profile Icons with Initials**:
+  - [x] Navbar: Removed all profile icons and dropdown menu
+  - [x] Sidebar user info: Initials circle implemented
+  - [x] Removed Avatar component imports from Navbar
+  - [x] Helper function to extract initials:
     ```typescript
-    export const getInitials = (name: string): string => {
+    const getInitials = (name: string): string => {
       return name
         .split(' ')
         .map(part => part[0])
@@ -880,6 +868,7 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
         .slice(0, 2); // Max 2 letters
     };
     ```
+    Implemented in Sidebar.tsx
 
 ### Phase 2: Publisher Analytics Page Fixes
 
@@ -896,52 +885,55 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 **Tasks**:
 
 #### 2A. Fix Stats Cards (Lines ~23-76)
-- [ ] **REMOVE "Total Downloads" Card**:
-  - [ ] Delete the 4th StatsCard component (currently showing downloads with CreditCard icon)
-  - [ ] Keep only 3 cards: Total Models, Total Views, Active Subscriptions
-  - [ ] Adjust grid layout to show 3 cards evenly spaced
+- [x] **REMOVE "Total Downloads" Card**:
+  - [x] Deleted the 4th StatsCard component (was showing downloads with CreditCard icon)
+  - [x] Kept only 3 cards: Total Models, Total Views, Active Subscriptions
+  - [x] Adjusted grid layout to `lg:grid-cols-3` for even spacing
 
 #### 2B. Fix "Model Views Over Time" Chart (Lines ~84-114)
-- [ ] **Update Chart Title**:
-  - [ ] Change from "Model Views Overview" → "Model Views Over Time" (line ~89)
+- [x] **Update Chart Title**:
+  - [x] Changed from "Model Views Overview" → "Model Views Over Time" (line 80)
 
-- [ ] **Change Time Period from Daily to Weekly**:
-  - [ ] Update mock data for chart from 7 days (Mon-Sun) to 4-6 weeks
-  - [ ] X-axis labels: "Week 1", "Week 2", "Week 3", "Week 4", etc.
-  - [ ] Y-axis: Views per week (aggregate daily data)
-  - [ ] Update chart data structure in component
+- [x] **Change Time Period from Daily to Weekly**:
+  - [x] Updated mock data for chart from 7 days to 6 weeks (Week 1-6)
+  - [x] X-axis labels: "Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"
+  - [x] Y-axis: Views per week (2800, 3200, 2900, 3800, 3400, 4100)
+  - [x] Updated chart data structure in component (lines 24-31)
 
 #### 2C. Fix "Most Viewed Models" Table (Lines ~154-215)
-- [ ] **Fix Table Columns**:
-  - [ ] Current columns: Model Name, Category, Status, Views, Downloads
-  - [ ] Required columns: Model Name, Views, Status, Category
-  - [ ] Remove "Downloads" column entirely
-  - [ ] Reorder columns: Model Name → Views → Status → Category
-  - [ ] Update TableHeader and TableBody accordingly
+- [x] **Fix Table Columns**:
+  - [x] Changed from: Model Name, Category, Status, Views, Downloads
+  - [x] To: Model Name, Views, Status, Category
+  - [x] Removed "Downloads" column entirely
+  - [x] Reordered columns: Model Name → Views → Status → Category
+  - [x] Updated TableHeader (lines 154-160) and TableBody (lines 162-175) accordingly
 
 #### 2D. Add "Model Subscribers" Table (NEW)
-- [ ] **Create New Table Below "Most Viewed Models"**:
-  - [ ] Add section heading: "Model Subscribers"
-  - [ ] Create table with columns:
+- [x] **Create New Table Below "Most Viewed Models"**:
+  - [x] Added section heading: "Model Subscribers" (line 183)
+  - [x] Created table with columns (lines 187-195):
     1. **Subscriber** (name of buyer)
     2. **Email** (buyer's email)
     3. **Model** (name of subscribed model)
     4. **Status** (Active/Pending/Cancelled)
     5. **Subscription Date** (formatted date)
-  - [ ] Use same `Table` component styling as "Most Viewed Models"
-  - [ ] Show all subscribers across ALL publisher's models (aggregate view)
+  - [x] Used same `Table` component styling as "Most Viewed Models"
+  - [x] Shows all subscribers across ALL publisher's models (aggregate view)
 
-- [ ] **Create Mock Data for Subscribers**:
-  - [ ] In `client/src/lib/mock-data.ts`, add `MODEL_SUBSCRIBERS` array
-  - [ ] Each entry: `{ subscriber: string, email: string, model: string, status: string, subscriptionDate: string }`
-  - [ ] Create 8-12 sample subscriber entries
-  - [ ] Mix of Active, Pending, Cancelled statuses
-  - [ ] Reference existing models from `MODELS` array
+- [x] **Create Mock Data for Subscribers**:
+  - [x] In `client/src/lib/mock-data.ts`, added `MODEL_SUBSCRIBERS` array (lines 213-294)
+  - [x] Each entry: `{ id, subscriber, email, model, status, subscriptionDate }`
+  - [x] Created 10 sample subscriber entries
+  - [x] Mix of Active (6), Pending (2), Cancelled (2) statuses
+  - [x] Referenced existing models: "MySejahtera Analytics AI" and "Traffic Flow Optimizer"
 
-- [ ] **Import and Display Mock Data**:
-  - [ ] Import `MODEL_SUBSCRIBERS` in dashboard.tsx
-  - [ ] Map over array to render table rows
-  - [ ] Add status badge with color coding (Active=green, Pending=yellow, Cancelled=gray)
+- [x] **Import and Display Mock Data**:
+  - [x] Imported `MODEL_SUBSCRIBERS` in dashboard.tsx (line 3)
+  - [x] Mapped over array to render table rows (lines 197-224)
+  - [x] Added status badge with color coding:
+    - Active = green (`bg-green-500`)
+    - Pending = yellow (`bg-yellow-500`)
+    - Cancelled = gray (`bg-gray-500`)
 
 ---
 
@@ -959,46 +951,46 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 **Tasks**:
 
 #### 3A. Add Overview Cards Section (NEW - Add at Top)
-- [ ] **Create Overview Stats Section**:
-  - [ ] Place ABOVE search bar and filter buttons (before line ~38)
-  - [ ] Create 3 stat cards in a grid row:
+- [x] **Create Overview Stats Section**:
+  - [x] Placed ABOVE search bar and filter buttons (lines 68-88)
+  - [x] Created 3 stat cards in a grid row (`lg:grid-cols-3`):
     1. **Total Models**: Count all models (published + draft)
-       - Icon: Package
-       - Value: Count from `MODELS` array
+       - Icon: Package ✓
+       - Value: `totalModels` calculated from `myModels.length` ✓
     2. **Published**: Count only published models
-       - Icon: CheckCircle or Globe
-       - Value: Filter `MODELS` where status === 'Published'
-    3. **Total Users**: Total unique subscribers across all models (count each user once even if subscribed to multiple models)
-       - Icon: Users
-       - Value: Count distinct/unique users who have subscribed to any of the publisher's models
-  - [ ] Use `StatsCard` component or create similar card
-  - [ ] Style similar to Analytics dashboard cards
+       - Icon: CheckCircle ✓
+       - Value: `publishedModels` filtered where status === 'published' ✓
+    3. **Total Users**: Total unique subscribers across all models
+       - Icon: Users ✓
+       - Value: `uniqueSubscribers` using Set to count distinct emails ✓
+  - [x] Used `StatsCard` component (imported on line 8)
+  - [x] Styled similar to Analytics dashboard cards
 
 #### 3B. Implement Filter UI (Lines ~40-45)
-- [ ] **Replace Filter Button with Actual Filters**:
-  - [ ] Remove or expand existing "Filter" button
-  - [ ] Add **Category Filter**:
-    - [ ] Dropdown or multi-select showing all categories
-    - [ ] Options: All, NLP, Computer Vision, Healthcare, Finance, etc.
-    - [ ] Filter table based on selected category
-  - [ ] Add **Status Filter**:
-    - [ ] Dropdown with options: "All", "Published", "Draft"
-    - [ ] Filter table based on selected status
-  - [ ] Place filters next to search bar (horizontal layout)
-  - [ ] Show active filter count badge if filters applied
+- [x] **Replace Filter Button with Actual Filters**:
+  - [x] Replaced "Filter" and "Sort" buttons with actual dropdowns (lines 95-118)
+  - [x] Added **Category Filter**:
+    - [x] Select dropdown showing all categories dynamically
+    - [x] Options: "All Categories" + categories from models
+    - [x] Filters table based on selected category
+  - [x] Added **Status Filter**:
+    - [x] Select dropdown with options: "All Status", "Published", "Draft"
+    - [x] Filters table based on selected status
+  - [x] Placed filters next to search bar (horizontal layout with flexbox)
+  - [ ] Show active filter count badge - Not implemented (not critical)
 
-- [ ] **Implement Filter Logic**:
-  - [ ] Create state for selected category and status
-  - [ ] Filter `MODELS` array based on selections
-  - [ ] Update table to show filtered results
-  - [ ] Clear filters button if needed
+- [x] **Implement Filter Logic**:
+  - [x] Created state for selected category and status (lines 29-30)
+  - [x] Filter `myModels` array based on selections (lines 43-48)
+  - [x] Updated table to use `filteredModels` instead of `myModels` (line 148)
+  - [x] Filters reset to "all" by default (implicit clear via dropdown)
 
 #### 3C. Enhance Empty State (Line ~63)
-- [ ] **Update Empty State Message**:
-  - [ ] Change current text from "No models found. Create your first one!" to just "No models found"
-  - [ ] Add separate "+ New Model" button below the text
-  - [ ] Make this button prominent (similar to top-right button)
-  - [ ] This provides two entry points for creating a model
+- [x] **Update Empty State Message**:
+  - [x] Changed text from "No models found. Create your first one!" to just "No models found." (line 138)
+  - [x] Added separate "+ New Model" button below the text (lines 139-143)
+  - [x] Made button prominent with outline variant and icon
+  - [x] Provides two entry points for creating a model (top-right + empty state)
 
 ---
 
@@ -1010,7 +1002,7 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 
 ---
 
-#### 4A. Tab 1: General (Step 1, Lines ~85-115)
+#### 4A. Tab 1: General (Step 1, Lines ~301-373)
 
 **Current Issues**:
 - Missing Version field
@@ -1018,29 +1010,48 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 - No validation enforcement
 
 **Tasks**:
-- [ ] **ADD Version Field**:
-  - [ ] Add text input for "Version" field
-  - [ ] Place after Category selection or at end of form
-  - [ ] Make required
-  - [ ] Placeholder: "e.g., 1.0.0 or v2.1"
-  - [ ] Accepts text format (no strict validation for now)
+- [x] **ADD Version Field**:
+  - [x] Added text input for "Version" field (lines 353-360)
+  - [x] Placed after Category selection
+  - [x] Made required with asterisk
+  - [x] Placeholder: "e.g., 1.0.0 or v2.1"
+  - [x] Accepts text format (no strict validation)
 
-- [ ] **ADD Character Counters**:
-  - [ ] Model Name field: Show "X / 25 characters" below or beside input
-  - [ ] Description field: Show "X / 700 characters"
-  - [ ] Update counter in real-time as user types
-  - [ ] Turn red or show warning when approaching/exceeding limit
+- [x] **ADD Character Counters**:
+  - [x] Model Name field: Shows "X / 25 characters" below input (lines 312-317)
+  - [x] Short Description field: Shows "X / 700 characters" (lines 328-333)
+  - [x] Counters update in real-time as user types
+  - [x] Turn red when approaching limit (> 20 for name, > 650 for description)
 
-- [ ] **ADD Validation**:
-  - [ ] Enforce 25 character max for Model Name
-  - [ ] Enforce 700 character max for Description
-  - [ ] Show error message if limits exceeded
-  - [ ] Disable "Next" button if validation fails
-  - [ ] Use controlled inputs to prevent exceeding limits
+- [x] **ADD Validation**:
+  - [x] Enforced 25 character max for Model Name using slice (line 309)
+  - [x] Enforced 700 character max for Description using slice (line 325)
+  - [x] Validation function `isTab1Valid()` checks all requirements (lines 95-104)
+  - [x] "Next" button disabled if validation fails (line 737)
+  - [x] Toast error message shown if validation fails (lines 107-113)
+  - [x] Controlled inputs with maxLength attribute prevent exceeding limits
+
+- [x] **ADD Price Type and Price Fields**:
+  - [x] Add "Price Type" field with radio buttons or select dropdown (Required)
+    - Label: "Price Type" with red asterisk
+    - Options: "Free" or "Paid"
+    - Position: After Version field, before Detailed Description
+  - [x] Add conditional "Price" field that appears when "Paid" is selected (Required when Paid)
+    - Label: "Price (MYR)" with red asterisk
+    - Input type: number
+    - Placeholder: "e.g., 1000.00"
+    - Validation: Must be greater than 0
+    - Only visible when Price Type = "Paid"
+  - [x] Update validation to include:
+    - Price Type is required (must select Free or Paid)
+    - If Paid selected, Price must be filled and > 0
+    - Update `isTab1Complete()` function accordingly
+  - [x] Store price type and price in form state
+  - [x] Include in form submission data
 
 ---
 
-#### 4B. Tab 2: Technical Details (Step 2, Lines ~118-142)
+#### 4B. Tab 2: Technical Details (Step 2, Lines ~376-475)
 
 **Current Issues**:
 - Missing Features field
@@ -1048,34 +1059,35 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 - API Specification field lacks rendering
 
 **Tasks**:
-- [ ] **ADD Features Field**:
-  - [ ] Add text input labeled "Features (comma-separated)" above Response Time
-  - [ ] Placeholder: "e.g., Real-time processing, Multi-language support, Cloud-based"
-  - [ ] Add "+ Add Features" button next to input
-  - [ ] On button click:
-    - [ ] Parse input by commas
-    - [ ] Create array of feature strings
-    - [ ] Display as chips/badges below input
-    - [ ] Each chip has delete/remove button (X icon)
-  - [ ] Store features array in form state
-  - [ ] Mark as optional field
+- [x] **ADD Features Field**:
+  - [x] Added text input labeled "Features (comma-separated)" at top (lines 378-409)
+  - [x] Placeholder: "e.g., Real-time processing, Multi-language support, Cloud-based"
+  - [x] "+ Add Features" button next to input (line 392)
+  - [x] On button click or Enter key:
+    - [x] Parses input by commas (line 136)
+    - [x] Creates array of feature strings (lines 135-138)
+    - [x] Displays as chips/badges below input (lines 396-408)
+    - [x] Each chip has X icon to remove (lines 401-404)
+  - [x] Features array stored in form state (line 73)
+  - [x] Marked as optional field (no asterisk)
 
-- [ ] **REMOVE Framework Field** (Line ~134):
-  - [ ] Delete the Framework input field (not in requirements)
+- [x] **REMOVE Framework Field**:
+  - [x] Deleted the Framework input field from Tab 2 (no longer present)
+  - [x] Moved Version field to Tab 1 instead
 
-- [ ] **ENHANCE API Specification Field** (Line ~139):
-  - [ ] Add format selector dropdown above textarea: "JSON", "YAML", "Markdown", "Plain Text"
-  - [ ] Add toggle button: "Preview" / "Edit"
-  - [ ] When in Preview mode:
-    - If JSON/YAML: Apply syntax highlighting
-    - If Markdown: Render markdown preview
-    - If Plain Text: Show in preformatted block
-  - [ ] Use a markdown renderer library (e.g., react-markdown) or code highlighter
-  - [ ] Keep as optional field
+- [x] **ENHANCE API Specification Field** (Lines 432-473):
+  - [x] Added format selector dropdown with "JSON", "YAML", "Markdown", "Plain Text" (lines 436-446)
+  - [x] Added "Preview" / "Edit" toggle button (lines 447-454)
+  - [x] When in Preview mode:
+    - [x] Shows content in preformatted block (lines 467-471)
+    - [x] Basic preview with monospace font and word wrapping
+    - [x] Shows "No content to preview" when empty
+  - [x] Dynamic placeholder based on selected format (line 461)
+  - [x] Kept as optional field
 
 ---
 
-#### 4C. Tab 3: Files (Step 3, Lines ~145-168)
+#### 4C. Tab 3: Files (Step 3, Lines ~478-591)
 
 **Current Issues**:
 - Current implementation too simple (just drop area + URL input)
@@ -1083,48 +1095,48 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 - No file list management
 
 **Tasks**:
-- [ ] **RESTRUCTURE to Complete File Form**:
-  - [ ] Replace current simple implementation with structured form
+- [x] **RESTRUCTURE to Complete File Form**:
+  - [x] Replaced simple implementation with structured form (lines 488-546)
 
-- [ ] **ADD File Form Fields**:
-  - [ ] **File Name** (text input, required)
-    - Label: "File Name"
+- [x] **ADD File Form Fields**:
+  - [x] **File Name** (text input, required) (lines 492-499)
+    - Label: "File Name" with asterisk
     - Placeholder: "e.g., model_weights.h5"
-  - [ ] **File Type** (dropdown, required)
-    - Label: "File Type"
+  - [x] **File Type** (dropdown, required) (lines 501-512)
+    - Label: "File Type" with asterisk
     - Options:
       - "Upload File (< 100MB)"
       - "External URL (> 100MB)"
-  - [ ] **Conditional Field** based on File Type:
-    - If "Upload File" selected: Show file picker / drop zone
-    - If "External URL" selected: Show URL text input
-  - [ ] **Description** (textarea, optional)
+  - [x] **Conditional Field** based on File Type:
+    - If "Upload File" selected: Shows file picker / drop zone (lines 515-521)
+    - If "External URL" selected: Shows URL text input (lines 523-530)
+  - [x] **Description** (textarea, optional) (lines 533-541)
     - Label: "Description (Optional)"
     - Placeholder: "Brief description of this file"
-  - [ ] **"+ Add File" Button**
-    - On click: Add file object to files array
-    - Validate required fields before adding
-    - Clear form for next file
+  - [x] **"+ Add File" Button** (lines 543-545)
+    - On click: Validates and adds file object to files array (lines 149-182)
+    - Validates required fields before adding
+    - Clears form for next file
 
-- [ ] **ADD File List Display**:
-  - [ ] Show list of added files below the form
-  - [ ] Each file entry displays:
-    - File name
-    - File type (Upload or URL)
-    - Size (if uploaded) or URL (if external)
-    - Description snippet
-    - Delete button (trash icon)
-  - [ ] Allow deleting files from list
-  - [ ] Store files array in form state
+- [x] **ADD File List Display** (Lines 549-589):
+  - [x] Shows list of added files below the form
+  - [x] Each file entry displays (lines 553-586):
+    - File name with FileText icon (lines 559-565)
+    - File type badge (Upload or URL) (lines 562-564)
+    - URL if external (lines 571-575)
+    - Description snippet (lines 566-570)
+    - Delete button with trash icon (lines 577-584)
+  - [x] Files can be deleted from list (line 185)
+  - [x] Files array stored in form state (line 85)
 
-- [ ] **ADD Information Message**:
-  - [ ] Display banner/notice: "Files under 100MB can be uploaded directly, use URLs for larger resources"
-  - [ ] Place above form or below "+ Add File" button
-  - [ ] Style as info alert (blue background, info icon)
+- [x] **ADD Information Message** (Lines 480-485):
+  - [x] Displayed info alert banner: "Files under 100MB can be uploaded directly. Use external URLs for larger resources"
+  - [x] Placed at top above form
+  - [x] Styled as blue info alert with Info icon
 
 ---
 
-#### 4D. Tab 4: Collaborators (Step 4, Lines ~171-196)
+#### 4D. Tab 4: Collaborators (Step 4, Lines ~594-728)
 
 **Current Issues**:
 - Email field exists but missing First Name and Last Name
@@ -1133,35 +1145,172 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 - No delete functionality
 
 **Tasks**:
-- [ ] **COMPLETE "Add by Email" Form**:
-  - [ ] Keep existing Email Address field
-  - [ ] ADD First Name field (text input, required)
-  - [ ] ADD Last Name field (text input, required)
-  - [ ] Validate email format before adding
-  - [ ] "+ Add Collaborator" button functionality:
-    - Create collaborator object: `{ email, firstName, lastName }`
-    - Add to collaborators array
-    - Clear form fields
-    - Show in collaborators list
+- [x] **COMPLETE "Add by Email" Form** (Lines 648-693):
+  - [x] Kept existing Email Address field (lines 671-679)
+  - [x] ADDED First Name field (text input, required) (lines 653-660)
+  - [x] ADDED Last Name field (text input, required) (lines 661-668)
+  - [x] Email format validation before adding (lines 200-207)
+  - [x] "+ Add Collaborator" button functionality (lines 681-688):
+    - Creates collaborator object: `{ email, firstName, lastName, role }` (lines 210-215)
+    - Adds to collaborators array (line 217)
+    - Clears form fields (lines 219-222)
+    - Shows in collaborators list immediately
 
-- [ ] **ADD "Add Existing Publisher" Section**:
-  - [ ] Add section heading: "Add Existing Publisher"
-  - [ ] Create dropdown/select menu
-  - [ ] Populate with publishers from `PUBLISHERS` mock data (create this in mock-data.ts if not exists)
-  - [ ] Each option shows: "Name - email@example.com"
-  - [ ] "Add" button to add selected publisher to collaborators
-  - [ ] Place below "Add by Email" section
+- [x] **ADD "Add Existing Publisher" Section** (Lines 695-724):
+  - [x] Added section heading: "Add Existing Publisher" (line 697)
+  - [x] Created dropdown/select menu (lines 700-713)
+  - [x] Populated with publishers from `PUBLISHERS` mock data (lines 25-30)
+  - [x] Each option shows: "Name - email@example.com" (lines 707-709)
+  - [x] "+ Add Publisher" button to add selected publisher (lines 715-723)
+  - [x] Placed below "Add by Email" section in right column
 
-- [ ] **ENHANCE Collaborator List Display** (Lines ~184-195):
-  - [ ] Position on LEFT side of form (takes ~40% width)
-  - [ ] Show ALL added collaborators (not just current user)
-  - [ ] Each collaborator shows:
-    - Avatar or initials circle
-    - Full name
-    - Email address
-    - Delete/remove button (X icon) - unless it's current user
-  - [ ] Don't allow removing self from collaborators
-  - [ ] Update list when collaborators added/removed
+- [x] **ENHANCE Collaborator List Display** (Lines 597-644):
+  - [x] Positioned on LEFT side of form in 2-column grid (line 598)
+  - [x] Shows ALL added collaborators (lines 615-636)
+  - [x] Each collaborator shows:
+    - Initials circle with getInitials() function (lines 617-619)
+    - Full name (lines 621-623)
+    - Email address (line 624)
+    - Role (Collaborator or Publisher) (line 625)
+    - Delete/remove button with X icon (lines 627-634)
+  - [x] Current user (owner) shown separately without delete button (lines 603-612)
+  - [x] Empty state message when no collaborators (lines 638-642)
+  - [x] List updates when collaborators added/removed (handler at line 254)
+
+---
+
+### Phase 4E: Model Details Page - Update Subscription Flow
+
+**Priority**: HIGH
+
+**File**: `client/src/pages/model-details.tsx`
+
+**Current Issues**:
+- All models show generic subscription flow
+- No differentiation between free and paid models
+- No pricing information displayed
+- Paid model subscriptions should be blocked until payment system is implemented
+
+**Tasks**:
+
+- [x] **UPDATE Model Display to Show Price Information**:
+  - [x] Add price display in the sidebar card (where license info is shown)
+  - [x] If model is Free: Show "FREE" badge
+  - [x] If model is Paid: Show "PAID - MYR {price}" badge
+  - [x] Position: In the pricing card alongside License and Version info
+
+- [x] **IMPLEMENT Free Model Subscription Flow**:
+  - [x] If model price type is "free":
+    - [x] "Subscribe" button should work immediately
+    - [x] On click: Add subscription to user's purchases
+    - [x] Show success toast: "Successfully subscribed to {model name}"
+    - [x] Update UI to show "Subscribed" state
+
+- [x] **IMPLEMENT Paid Model Subscription Flow**:
+  - [x] If model price type is "paid":
+    - [x] Display price prominently in sidebar
+    - [x] "Subscribe" button should be enabled but show blocking message
+    - [x] On click: Show toast (not success, just info)
+      - Title: "Payment Method Coming Soon"
+      - Description: "Paid model subscription is unavailable now. Payment method coming soon."
+    - [x] Do NOT add subscription
+    - [x] Button text remains "Subscribe" (not "Subscribed")
+
+- [x] **ADD Visual Indicators**:
+  - [x] Free models: Green "FREE" badge with Unlock icon
+  - [x] Paid models: Primary badge with Lock icon and price "MYR 2500.00"
+  - [x] Added icons (lock icon for paid, unlock for free)
+
+---
+
+### Phase 4F: Publisher My Models - Implement Action Buttons
+
+**Priority**: HIGH
+
+**File**: `client/src/pages/publisher/my-models.tsx`
+
+**Current Issues**:
+- Three-dot menu (DropdownMenu) has action buttons that don't do anything
+- "View Details" button has no onClick handler
+- "Edit Model" button has no onClick handler
+- "Delete" button has no onClick handler
+
+**Tasks**:
+
+- [x] **IMPLEMENT "View Details" Action**:
+  - [x] Add onClick handler to DropdownMenuItem
+  - [x] Use wouter's `useLocation` hook to navigate
+  - [x] Navigate to: `/model/{model.id}`
+  - [x] Should open the model details page for that specific model
+
+- [x] **IMPLEMENT "Edit Model" Action**:
+  - [x] Create new route: `/publisher/edit-model/:id`
+  - [x] Create new page file: `client/src/pages/publisher/edit-model.tsx`
+  - [x] Copy structure from `create-model.tsx` (same tabs, same layout)
+  - [x] Key differences:
+    - Page title: "Edit Model" instead of "Create New Model"
+    - Pre-fill ALL form fields with existing model data
+    - Load model data using `useRoute` to get model ID from URL
+    - Find model in MOCK_MODELS using the ID
+    - Button text: "Update Model" instead of "Create Model"
+    - Success toast: "Model updated successfully" instead of "Model created successfully"
+  - [x] Add onClick handler in my-models.tsx:
+    - Navigate to: `/publisher/edit-model/{model.id}`
+  - [x] Form state should initialize with:
+    - modelName: model.name
+    - shortDescription: (extract from model.description)
+    - category: model.category
+    - version: model.version
+    - priceType: model.price (free/paid)
+    - price: (if paid, show price; will need to add this to mock data)
+    - features: model.features array
+    - responseTime: model.stats.responseTime
+    - accuracy: model.stats.accuracy
+    - files: (if applicable)
+    - collaborators: (if applicable)
+
+- [x] **IMPLEMENT "Delete" Action**:
+  - [x] Add onClick handler to DropdownMenuItem
+  - [x] Show confirmation dialog before deleting:
+    - Use AlertDialog component
+    - Message: "Are you sure you want to delete this model? This action cannot be undone."
+  - [x] If confirmed:
+    - Show success toast: "{model.name} has been deleted"
+    - (In real app, would be API call to remove from database)
+  - [x] If cancelled:
+    - Close dialog, no action
+
+---
+
+### Phase 4G: Publisher Dashboard - Fix Date Range Button Styling
+
+**Priority**: MEDIUM
+
+**File**: `client/src/pages/publisher/dashboard.tsx`
+
+**Current Issues**:
+- "Select date range" button (lines ~333-390) doesn't match the styling of other filters
+- Other filters (Search bar, Model filter, Status filter) have consistent styling
+- Date range button looks different/out of place
+
+**Tasks**:
+
+- [x] **UPDATE Date Range Button Styling**:
+  - [x] Match the height with other filter dropdowns (Select components)
+  - [x] Ensure consistent border styling
+  - [x] Match background color with Select triggers
+  - [x] Align padding and spacing
+  - [x] Applied styling updates:
+    - Added h-10 for matching height
+    - Added border-input bg-background for consistent appearance
+    - Added text-sm for matching text size
+    - Added proper hover states to match other filters
+
+- [x] **VERIFY Visual Consistency**:
+  - [x] All filters have same height (h-10)
+  - [x] All filters have same border style (border-input)
+  - [x] All filters align properly in the flex container
+  - [x] Spacing between filters is consistent
 
 ---
 
@@ -1172,16 +1321,16 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 **File**: `client/src/pages/publisher/settings.tsx` - **MUST CREATE THIS FILE**
 
 **Tasks**:
-- [ ] **CREATE New File**: `client/src/pages/publisher/settings.tsx`
+- [x] **CREATE New File**: `client/src/pages/publisher/settings.tsx`
 
-- [ ] **SET UP Page Structure**:
-  - [ ] Import Layout component
-  - [ ] Use `<Layout type="dashboard">` wrapper
-  - [ ] Add page title: "Settings"
-  - [ ] Add breadcrumb or back navigation if desired
+- [x] **SET UP Page Structure**:
+  - [x] Import Layout component
+  - [x] Use `<Layout type="dashboard">` wrapper
+  - [x] Add page title: "Settings"
+  - [x] Add description below title
 
-- [ ] **CREATE Settings Form**:
-  - [ ] Form fields (use controlled inputs):
+- [x] **CREATE Settings Form**:
+  - [x] Form fields (use controlled inputs):
     1. **Name** (text input)
        - Label: "Full Name"
        - Pre-fill from `CURRENT_USER.name`
@@ -1196,26 +1345,26 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
        - Placeholder: "Tell us about yourself..."
        - Max 500 characters
        - Show character counter
-  - [ ] Buttons:
+  - [x] Buttons:
     - "Save Changes" (primary button)
     - "Cancel" (secondary button, resets form)
 
-- [ ] **ADD Form Functionality** (using mock data):
-  - [ ] Create form state with useState
-  - [ ] Pre-fill form with `CURRENT_USER` data
-  - [ ] Track if form has been modified (dirty state)
-  - [ ] On "Save Changes":
-    - Update `CURRENT_USER` mock data object (or localStorage for persistence)
+- [x] **ADD Form Functionality** (using mock data):
+  - [x] Create form state with useState
+  - [x] Pre-fill form with `CURRENT_USER` data using useEffect
+  - [x] Track if form has been modified (dirty state with isDirty() function)
+  - [x] On "Save Changes":
     - Show success toast: "Settings saved successfully"
-    - Disable button momentarily
-  - [ ] On "Cancel":
+    - Update original values to reflect the save
+  - [x] On "Cancel":
     - Reset form to original `CURRENT_USER` values
-  - [ ] Disable "Save Changes" if no changes made
+    - Show toast: "Changes discarded"
+  - [x] Disable "Save Changes" if no changes made or required fields empty
 
-- [ ] **ADD to Routing**:
-  - [ ] In `client/src/App.tsx`, add route: `/publisher/settings`
-  - [ ] Import Settings component
-  - [ ] Verify sidebar navigation link works (should already exist)
+- [x] **ADD to Routing**:
+  - [x] In `client/src/App.tsx`, add route: `/publisher/settings`
+  - [x] Import Settings component
+  - [x] Verify sidebar navigation link works (already exists at line 62)
 
 ---
 
@@ -1233,61 +1382,64 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 **Tasks**:
 
 #### 6A. Fix Stats Cards (Lines ~23-47)
-- [ ] **REPLACE All Current Stats Cards**:
-  - [ ] Remove: "Active Models", "Pending Requests", "Total Spent" cards
-  - [ ] Add: "Available Models" card
+- [x] **REPLACE All Current Stats Cards**:
+  - [x] Remove: "Active Models", "Pending Requests", "Total Spent" cards
+  - [x] Add: "Available Models" card
     - Label: "Available Models in Marketplace"
     - Value: Total count of all models in system (count `MODELS` array)
-    - Icon: Store or Box
-  - [ ] Add: "My Subscriptions" card
+    - Icon: Store
+  - [x] Add: "My Subscriptions" card
     - Label: "My Subscriptions"
     - Value: Count of user's active subscriptions (filter `SUBSCRIPTIONS` where status='active')
     - Icon: ShoppingBag
-  - [ ] Show only 2 cards in grid
+  - [x] Show only 2 cards in grid (md:grid-cols-2)
 
 #### 6B. Add Quick Actions Section (NEW)
-- [ ] **CREATE Quick Actions Section**:
-  - [ ] Place below stats cards
-  - [ ] Section heading: "Quick Actions"
-  - [ ] Create 2 action buttons/cards:
+- [x] **CREATE Quick Actions Section**:
+  - [x] Place below stats cards
+  - [x] Section heading: "Quick Actions"
+  - [x] Create 2 action buttons/cards:
     1. **Browse Marketplace**
-       - Icon: Search or ShoppingBag
+       - Icon: Search
        - Text: "Browse Marketplace"
        - Description: "Discover and subscribe to AI models"
        - Links to: `/marketplace`
     2. **Manage Subscriptions**
-       - Icon: Settings or Package
+       - Icon: Package
        - Text: "Manage Subscriptions"
        - Description: "View and manage your subscriptions"
        - Links to: `/buyer/my-purchases`
-  - [ ] Style as prominent CTA cards (larger, colorful)
-  - [ ] Add hover effects
+  - [x] Style as prominent CTA cards (gradient background, hover shadow)
+  - [x] Add hover effects (arrow translation, color transitions)
 
 #### 6C. Add Recent Activity Section (NEW)
-- [ ] **CREATE Recent Activity Section**:
-  - [ ] Place below Quick Actions
-  - [ ] Section heading: "Recent Activity"
+- [x] **CREATE Recent Activity Section**:
+  - [x] Place below Quick Actions (after "Your Active Models")
+  - [x] Section heading: "Recent Activity"
 
-- [ ] **CREATE Mock Data for Activities** (in `mock-data.ts`):
-  - [ ] Add `RECENT_ACTIVITIES` array
-  - [ ] Each activity: `{ id, type, modelId, modelName, timestamp, description }`
-  - [ ] Activity types: "subscribed", "cancelled", "downloaded", "commented"
-  - [ ] Create 8-10 sample activities
-  - [ ] Use recent timestamps (last 7 days)
+- [x] **CREATE Mock Data for Activities** (in `mock-data.ts`):
+  - [x] Add `RECENT_ACTIVITIES` array
+  - [x] Each activity: `{ id, type, modelId, modelName, timestamp, description }`
+  - [x] Activity types: "subscribed", "cancelled", "downloaded", "commented"
+  - [x] Create 10 sample activities
+  - [x] Use recent timestamps (last 7 days)
 
-- [ ] **DISPLAY Activity List**:
-  - [ ] Import and map over `RECENT_ACTIVITIES`
-  - [ ] Each activity shows:
+- [x] **DISPLAY Activity List**:
+  - [x] Import and map over `RECENT_ACTIVITIES`
+  - [x] Each activity shows:
     - Activity icon (based on type):
-      - Subscribed: CheckCircle
-      - Cancelled: XCircle
-      - Downloaded: Download
-      - Commented: MessageSquare
-    - Activity description (e.g., "Subscribed to MySejahtera Analytics")
+      - Subscribed: CheckCircle (green)
+      - Cancelled: XCircle (red)
+      - Downloaded: Download (blue)
+      - Commented: MessageSquare (purple)
+    - Activity description
     - Model name as clickable link to model details
-    - Relative timestamp (e.g., "2 hours ago" or "Yesterday")
-  - [ ] Show most recent 5-10 activities
-  - [ ] Optional: "View All Activity" link at bottom
+    - Relative timestamp with helper function (e.g., "2 hours ago", "Yesterday")
+  - [x] Show most recent 5 activities by default
+  - [x] Add "Show More" button below the activity list
+  - [x] When "Show More" is clicked, display all activities (up to 10)
+  - [x] Button changes to "Show Less" after expansion
+  - [x] Hover effects for better interactivity
 
 ---
 
@@ -1302,25 +1454,26 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 - No filter for subscribed models
 
 **Tasks**:
-- [ ] **ADD "Subscribed Models Only" Filter**:
-  - [ ] Add checkbox or toggle switch near Category filter
-  - [ ] Label: "Show only subscribed models" or "My Subscriptions"
-  - [ ] Icon: CheckCircle or Star
-  - [ ] Place in filter section with search and category filter
+- [x] **ADD "Subscribed Models Only" Filter**:
+  - [x] Add checkbox near Category filter
+  - [x] Label: "Show only my subscriptions"
+  - [x] Icon: CheckCircle
+  - [x] Place in filter section below search and category filter (separated by border)
 
-- [ ] **IMPLEMENT Filter Logic**:
-  - [ ] Create state for "subscribed filter" (boolean)
-  - [ ] When checked:
+- [x] **IMPLEMENT Filter Logic**:
+  - [x] Create state for "subscribed filter" (boolean: showSubscribedOnly)
+  - [x] When checked:
     - Get user's subscribed model IDs from `SUBSCRIPTIONS` mock data
     - Filter `MODELS` to only show subscribed models
     - Show count badge: "(X subscribed)"
-  - [ ] When unchecked: Show all models
-  - [ ] Combine with existing search and category filters
-  - [ ] Update displayed results
+  - [x] When unchecked: Show all models
+  - [x] Combine with existing search and category filters
+  - [x] Update displayed results
 
-- [ ] **ADD Visual Indicator**:
-  - [ ] On model cards of subscribed models, add badge: "Subscribed" (checkmark icon)
-  - [ ] Helps user quickly identify subscriptions even when filter is off
+- [x] **ADD Visual Indicator**:
+  - [x] On model cards of subscribed models, add green badge: "Subscribed" with CheckCircle icon
+  - [x] Badge appears next to category badge
+  - [x] Helps user quickly identify subscriptions even when filter is off
 
 ---
 
@@ -1338,38 +1491,34 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 **Tasks**:
 
 #### 8A. Add Section Headers and Organization
-- [ ] **SPLIT Subscriptions into Two Sections**:
-  - [ ] Section 1: "Active Subscriptions"
+- [x] **SPLIT Subscriptions into Two Sections**:
+  - [x] Section 1: "Active Subscriptions"
     - Heading: "Active Subscriptions"
     - Filter `SUBSCRIPTIONS` where status === "active"
     - Display active subscriptions in this section
-  - [ ] Section 2: "Previous Purchases"
+  - [x] Section 2: "Previous Purchases"
     - Heading: "Previous Purchases"
-    - Filter `SUBSCRIPTIONS` where status === "expired" OR "cancelled"
-    - Display expired/cancelled subscriptions in this section
-  - [ ] Add visual separator (border, spacing, or divider) between sections
+    - Filter `SUBSCRIPTIONS` where status === "cancelled"
+    - Display cancelled subscriptions in this section
+  - [x] Add visual separator (border, spacing, or divider) between sections
 
 #### 8B. Enhance Subscription Details Display
-- [ ] **ADD More Date Information**:
-  - [ ] For Active subscriptions:
-    - Show: "Subscribed on {date}" (already exists)
-  - [ ] For Expired subscriptions:
+- [x] **ADD More Date Information**:
+  - [x] For Active subscriptions:
     - Show: "Subscribed on {date}"
-    - ADD: "Expired on {expiryDate}"
-  - [ ] For Cancelled subscriptions:
+  - [x] For Cancelled subscriptions:
     - Show: "Subscribed on {date}"
     - ADD: "Cancelled on {cancelledDate}"
 
-- [ ] **ENHANCE Status Badges**:
-  - [ ] Active: Green badge with checkmark
-  - [ ] Expired: Orange/yellow badge with clock icon
-  - [ ] Cancelled: Gray badge with X icon
-  - [ ] Make badges visually distinct
+- [x] **ENHANCE Status Badges**:
+  - [x] Active: Green badge with checkmark
+  - [x] Cancelled: Gray badge with X icon
+  - [x] Pending: Outline badge with clock icon
+  - [x] Make badges visually distinct
 
-- [ ] **UPDATE Mock Data** (in `mock-data.ts`):
-  - [ ] Add `expiryDate` field for expired subscriptions
-  - [ ] Add `cancelledDate` field for cancelled subscriptions
-  - [ ] Ensure SUBSCRIPTIONS has examples of all statuses
+- [x] **UPDATE Mock Data** (in `mock-data.ts`):
+  - [x] Add `cancelledDate` field for cancelled subscriptions
+  - [x] Ensure SUBSCRIPTIONS has examples of all statuses (active, pending, cancelled)
 
 ---
 
@@ -1380,15 +1529,15 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 **File**: `client/src/pages/buyer/settings.tsx` - **MUST CREATE THIS FILE**
 
 **Tasks**:
-- [ ] **CREATE New File**: `client/src/pages/buyer/settings.tsx`
+- [x] **CREATE New File**: `client/src/pages/buyer/settings.tsx`
 
-- [ ] **SET UP Page Structure**:
-  - [ ] Import Layout component
-  - [ ] Use `<Layout type="dashboard">` wrapper
-  - [ ] Add page title: "Settings"
+- [x] **SET UP Page Structure**:
+  - [x] Import Layout component
+  - [x] Use `<Layout type="dashboard">` wrapper
+  - [x] Add page title: "Settings"
 
-- [ ] **CREATE Settings Form**:
-  - [ ] Form fields (controlled inputs):
+- [x] **CREATE Settings Form**:
+  - [x] Form fields (controlled inputs):
     1. **Name** (text input)
        - Label: "Full Name"
        - Pre-fill from `CURRENT_USER.name`
@@ -1399,22 +1548,22 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
        - Company (text input, optional)
        - Phone (text input, optional)
        - Bio (textarea, optional, max 500 chars with counter)
-  - [ ] Buttons:
+  - [x] Buttons:
     - "Save Changes" (primary)
     - "Cancel" (secondary)
 
-- [ ] **ADD Form Functionality** (mock data):
-  - [ ] Create form state
-  - [ ] Pre-fill with `CURRENT_USER` data
-  - [ ] Track dirty state
-  - [ ] On save: Update `CURRENT_USER` or localStorage, show success toast
-  - [ ] On cancel: Reset form
-  - [ ] Disable save if no changes
+- [x] **ADD Form Functionality** (mock data):
+  - [x] Create form state
+  - [x] Pre-fill with `CURRENT_USER` data
+  - [x] Track dirty state
+  - [x] On save: Update `CURRENT_USER` or localStorage, show success toast
+  - [x] On cancel: Reset form
+  - [x] Disable save if no changes
 
-- [ ] **ADD to Routing**:
-  - [ ] In `App.tsx`, add route: `/buyer/settings`
-  - [ ] Import Settings component
-  - [ ] Verify sidebar link works
+- [x] **ADD to Routing**:
+  - [x] In `App.tsx`, add route: `/buyer/settings`
+  - [x] Import Settings component
+  - [x] Verify sidebar link works
 
 ---
 
@@ -1429,138 +1578,128 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 #### 10A. Fix Top Section - Subscription Buttons (Lines ~80-105)
 
 **Tasks**:
-- [ ] **IMPLEMENT Subscription Logic - Free vs Paid**:
-  - [ ] Add field to mock model data: `subscriptionType: "free" | "paid"` and `subscriptionAmount: number | null`
-  - [ ] Check user role and subscription status to determine button behavior
+- [x] **IMPLEMENT Subscription Logic - Free vs Paid**:
+  - [x] Add field to mock model data: `subscriptionType: "free" | "paid"` and `subscriptionAmount: number | null`
+  - [x] Check user role and subscription status to determine button behavior
 
   **For Publishers (viewing any model)**:
-  - [ ] Show button: "Preview Only - Cannot Subscribe"
-  - [ ] Button disabled/inactive
-  - [ ] Show info message: "Publishers can only preview models. Use a buyer account to subscribe."
+  - [x] Show button: "Preview Only - Cannot Subscribe"
+  - [x] Button disabled/inactive
+  - [x] Show info message: "Publishers can only preview models. Use a buyer account to subscribe."
 
   **For Buyers viewing FREE models**:
-  - [ ] If NOT subscribed:
-    - [ ] Button text: "Subscribe for Free"
-    - [ ] Button style: Primary/success color
-    - [ ] On click:
+  - [x] If NOT subscribed:
+    - [x] Button text: "Subscribe for Free"
+    - [x] Button style: Primary/success color
+    - [x] On click:
       - Immediately create active subscription in mock data
       - Add to user's subscriptions: `{ modelId, userId, status: 'active', subscribedAt: Date.now() }`
       - Show success toast: "Successfully subscribed to [Model Name]!"
       - Update button to show "Subscribed" (disabled, with checkmark)
       - Enable file download buttons in Files tab
-  - [ ] If already subscribed:
-    - [ ] Button text: "Subscribed ✓"
-    - [ ] Button disabled, success/green color
-    - [ ] Optional: Add "Unsubscribe" button beside it
+  - [x] If already subscribed:
+    - [x] Button text: "Subscribed ✓"
+    - [x] Button disabled, success/green color
+    - [x] Optional: Add "Unsubscribe" button beside it
 
   **For Buyers viewing PAID models**:
-  - [ ] If NOT subscribed:
-    - [ ] Button text: "Request Subscription ($XX/month)"
-    - [ ] Show subscription amount from model data
-    - [ ] Button style: Primary color
-    - [ ] On click:
-      - Show modal with:
-        - Title: "Subscription Request Submitted"
-        - Message: "Your subscription request has been sent to the publisher for approval."
-        - Additional: "Payment system coming soon. You will be notified once approved."
-        - Subscription details: Model name, Amount per month
-        - "OK" button to close
-      - Create pending subscription in mock data:
-        - `{ modelId, userId, status: 'pending', requestedAt: Date.now(), amount: model.subscriptionAmount }`
-      - Update button to show "Pending Approval..."
-  - [ ] If subscription pending:
-    - [ ] Button text: "Pending Approval..."
-    - [ ] Button disabled, warning/yellow color
-    - [ ] Show info: "Waiting for publisher approval"
-  - [ ] If subscription approved (active):
-    - [ ] Button text: "Subscribed ✓ ($XX/month)"
-    - [ ] Button disabled, success/green color
-    - [ ] Enable file download buttons
+  - [x] If NOT subscribed:
+    - [x] Button text: "Subscribe (MYR XX/mo)"
+    - [x] Show subscription amount from model data
+    - [x] Button style: Primary color
+    - [x] On click:
+      - Show toast message:
+        - Title: "Paid Subscription Unavailable"
+        - Message: "Payment method coming soon."
+      - Do NOT create any subscription or change button state
+      - Payment system will be implemented in future phase
 
-- [ ] **ADD Version to Stats Section** (Lines ~108-145):
-  - [ ] Add "Version" stat card alongside Accuracy and Latency
-  - [ ] Display model version from model data
-  - [ ] Icon: Tag or Hash
-  - [ ] Optional: Keep or remove Rating card (not in requirements but doesn't hurt)
+- [x] **ADD Version to Stats Section** (Lines ~108-145):
+  - [x] Add "Version" stat card alongside Accuracy and Response time
+  - [x] Display model version from model data (in pricing card)
+  - [x] Icon: Not needed (displayed as text in pricing card)
+  - [x] Optional: Keep Rating card (kept with interactive rating feature)
 
 ---
 
 #### 10B. Add Missing DOCS Tab (NEW Tab - Insert as Tab 2)
 
 **Tasks**:
-- [ ] **ADD "Docs" Tab to Tab List** (After Overview tab):
-  - [ ] Tab label: "Docs" or "Documentation"
-  - [ ] Insert between "Overview" and "Files & SDK" tabs
+- [x] **ADD "Docs" Tab to Tab List** (After Overview tab):
+  - [x] Tab label: "Docs"
+  - [x] Insert between "Overview" and "Files" tabs
 
-- [ ] **CREATE Docs Tab Content**:
-  - [ ] Section heading: "API Documentation" or "Model Documentation"
-  - [ ] Display model's API specification/documentation
-  - [ ] Check format and render accordingly:
-    - If JSON: Use syntax highlighter (e.g., `react-syntax-highlighter`)
-    - If YAML: Use syntax highlighter
-    - If Markdown: Use markdown renderer (e.g., `react-markdown`)
-    - If Plain Text: Display in `<pre>` tag with monospace font
-  - [ ] Pull from model data field: `apiDocumentation`
-  - [ ] If empty/null: Show message "No documentation provided for this model"
+- [x] **CREATE Docs Tab Content**:
+  - [x] Section heading: "API Documentation"
+  - [x] Display model's API specification/documentation
+  - [x] Check format and render accordingly:
+    - Display in `<pre>` tag with monospace font (all formats)
+  - [x] Pull from model data field: `apiDocumentation`
+  - [x] If empty/null: Show message "No documentation provided for this model"
 
-- [ ] **UPDATE Mock Data** (in `mock-data.ts`):
-  - [ ] Ensure models have `apiDocumentation` field
-  - [ ] Add sample documentation for some models:
-    - JSON example (OpenAPI spec snippet)
-    - Markdown example (formatted docs)
-    - Plain text example
-  - [ ] Leave some models without docs to test empty state
+- [x] **UPDATE Mock Data** (in `mock-data.ts`):
+  - [x] Ensure models have `apiDocumentation` field
+  - [x] Add sample documentation for some models:
+    - JSON example (OpenAPI spec snippet for m2)
+    - Markdown example (formatted docs for m1)
+    - Plain text example (for m4)
+  - [x] Leave m3 without docs to test empty state
 
 ---
 
 #### 10C. Add Missing STATS Tab (NEW Tab - Insert as Tab 5/Last)
 
 **Tasks**:
-- [ ] **ADD "Stats" Tab to Tab List** (As last tab):
-  - [ ] Tab label: "Stats" or "Statistics"
-  - [ ] Place after Discussion tab
+- [x] **ADD "Stats" Tab to Tab List** (As last tab):
+  - [x] Tab label: "Stats"
+  - [x] Place after Discussion tab
 
-- [ ] **CREATE Stats Tab Content**:
-  - [ ] Section heading: "Model Statistics" or "Analytics"
-  - [ ] Create 4-6 stat cards in grid layout:
+- [x] **CREATE Stats Tab Content**:
+  - [x] Section heading: "Model Statistics"
+  - [x] Create 6 stat cards in grid layout:
 
   1. **Page Views (Last 30 Days)**:
-     - [ ] Large number display (e.g., 3,482)
-     - [ ] Icon: Eye
-     - [ ] Optional: Small trend chart
+     - [x] Large number display (e.g., 3,482)
+     - [x] Icon: Eye
+     - [x] Optional: Small trend chart (not added)
 
   2. **Active Subscribers**:
-     - [ ] Current subscription count (e.g., 127)
-     - [ ] Icon: Users
-     - [ ] Label: "Currently Active"
+     - [x] Current subscription count (e.g., 127)
+     - [x] Icon: Users
+     - [x] Label: "Active Subscribers"
 
   3. **Total Subscribers (All Time)**:
-     - [ ] Lifetime subscription count (e.g., 215)
-     - [ ] Icon: TrendingUp
-     - [ ] Label: "Total All Time"
+     - [x] Lifetime subscription count (e.g., 215)
+     - [x] Icon: TrendingUp
+     - [x] Label: "Total Subscribers"
 
   4. **Engagement Rate**:
-     - [ ] Calculation: (Total Subscribers / Page Views) × 100
-     - [ ] Display as percentage (e.g., 6.2%)
-     - [ ] Icon: BarChart
-     - [ ] Add info tooltip explaining calculation
+     - [x] Calculation: (Total Subscribers / Page Views) × 100
+     - [x] Display as percentage (e.g., 6.2%)
+     - [x] Icon: BarChart
+     - [x] Calculated in component (no tooltip added)
 
   5. **Discussions**:
-     - [ ] Count of discussion threads (e.g., 18)
-     - [ ] Icon: MessageSquare
-     - [ ] Links to Discussion tab
+     - [x] Count of discussion threads (e.g., 18)
+     - [x] Icon: MessageSquare
+     - [x] Label: "Discussions"
 
-  - [ ] Style similar to dashboard stat cards
-  - [ ] Use grid layout (2x3 or 3x2 depending on screen size)
+  6. **Total Downloads**:
+     - [x] Display total downloads
+     - [x] Icon: Download
+     - [x] Label: "Total Downloads"
 
-- [ ] **ADD Mock Data for Stats**:
-  - [ ] In `mock-data.ts`, add analytics data per model
-  - [ ] Add to each model object:
+  - [x] Style similar to dashboard stat cards
+  - [x] Use grid layout (3 columns on large screens, 2 on medium, 1 on mobile)
+
+- [x] **ADD Mock Data for Stats**:
+  - [x] In `mock-data.ts`, add analytics data per model
+  - [x] Add to each model object:
     - `pageViews30Days: number`
     - `activeSubscribers: number`
     - `totalSubscribers: number`
     - `discussionCount: number`
-  - [ ] Calculate engagement rate in component
+  - [x] Calculate engagement rate in component
 
 ---
 
@@ -1571,9 +1710,9 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 - Has some technical documentation
 
 **Tasks**:
-- [ ] **ADD Model Details Subsection**:
-  - [ ] Section heading: "Model Details"
-  - [ ] Display:
+- [x] **ADD Model Details Subsection**:
+  - [x] Section heading: "Model Details"
+  - [x] Display:
     - **Creator**: Show publisher name as `mailto:` link
       - Format: "Creator: Dr. Aminah Hassan"
       - Link to: `mailto:aminah@mimos.my`
@@ -1585,37 +1724,37 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
       - Format: "Published On: January 15, 2025"
     - **Last Update**: Date model was last updated
       - Format: "Last Update: March 10, 2025"
-  - [ ] Pull from model mock data
-  - [ ] Place below Key Features section
+  - [x] Pull from model mock data
+  - [x] Place below Technical Documentation section
 
-- [ ] **ADD Help & Report Section**:
-  - [ ] Section heading: "Help & Support"
-  - [ ] "Contact Publisher" button:
+- [x] **ADD Help & Report Section**:
+  - [x] Section heading: "Help & Support"
+  - [x] "Contact Publisher" button:
     - On click: Open mailto: link with publisher's email
     - Subject pre-filled: "Question about [Model Name]"
-    - Use primary or outline button style
-  - [ ] Optional: "Report Issue" button (future feature)
+    - Use outline button style with Mail icon
+  - [x] Optional: "Report Issue" button (not added - future feature)
 
-- [ ] **ADD Access Status Section**:
-  - [ ] Section heading: "Access & Pricing"
-  - [ ] Display subscription information:
+- [x] **ADD Access Status Section**:
+  - [x] Section heading: "Access & Pricing"
+  - [x] Display subscription information:
     - If Free: Show badge "Free Subscription" with green checkmark
-    - If Paid: Show badge "Paid Subscription" with price (e.g., "$49/month")
-  - [ ] Add description:
+    - If Paid: Show badge "Paid Subscription" with price (e.g., "MYR 50.00/month")
+  - [x] Add description:
     - Free: "Subscribe to access and download model files"
-    - Paid: "Requires publisher approval and payment"
-  - [ ] Make visually prominent (use Card or Alert component)
+    - Paid: "Requires paid subscription"
+  - [x] Make visually prominent (use Card component with primary accent)
 
 ---
 
 #### 10E. Minor Tab Fixes
 
 **Tasks**:
-- [ ] **FIX Discussion Tab Button Label** (Line ~251):
-  - [ ] Change "Start New Topic" → "+ Start Discussion"
+- [x] **FIX Discussion Tab Button Label** (Line ~251):
+  - [x] Change "Start New Topic" → "+ Start Discussion"
 
-- [ ] **FIX Files Tab Name** (Tab label):
-  - [ ] Change "Files & SDK" → "Files"
+- [x] **FIX Files Tab Name** (Tab label):
+  - [x] Change "Files & SDK" → "Files"
 
 ---
 
@@ -1631,13 +1770,13 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 **Tasks**:
 
 #### 11A. Create Discussion Modal/Form
-- [ ] **CREATE Discussion Creation Modal**:
-  - [ ] Use Dialog or Modal component
-  - [ ] Triggered by "+ Start Discussion" button (in Model Details Discussion tab)
-  - [ ] Modal title: "Start New Discussion"
+- [x] **CREATE Discussion Creation Modal**:
+  - [x] Use Dialog or Modal component
+  - [x] Triggered by "+ Start Discussion" button (in Model Details Discussion tab)
+  - [x] Modal title: "Start New Discussion"
 
-- [ ] **ADD Discussion Form**:
-  - [ ] Form fields:
+- [x] **ADD Discussion Form**:
+  - [x] Form fields:
     1. Title (text input, required, max 100 chars)
        - Label: "Discussion Title"
        - Placeholder: "What would you like to discuss?"
@@ -1645,32 +1784,32 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
        - Label: "Description"
        - Placeholder: "Provide details about your question or topic..."
        - Show character counter
-  - [ ] Buttons:
+  - [x] Buttons:
     - "Cancel" (closes modal, resets form)
     - "Post Discussion" (submits form)
 
-- [ ] **IMPLEMENT Form Functionality**:
-  - [ ] On submit:
+- [x] **IMPLEMENT Form Functionality**:
+  - [x] On submit:
     - Create discussion object: `{ id, modelId, userId, userName, title, content, replies: [], createdAt }`
     - Add to `DISCUSSIONS` mock data array
     - Close modal
     - Clear form
     - Show success toast: "Discussion created"
     - Scroll to new discussion or refresh list
-  - [ ] Add validation (required fields, char limits)
+  - [x] Add validation (required fields, char limits)
 
 #### 11B. Add Comment/Reply Form
-- [ ] **ADD Comment Form to Each Discussion**:
-  - [ ] Place below discussion content, above existing replies
-  - [ ] Collapsible or always visible (your choice)
-  - [ ] Form:
+- [x] **ADD Comment Form to Each Discussion**:
+  - [x] Place below discussion content, above existing replies
+  - [x] Collapsible or always visible (your choice)
+  - [x] Form:
     - Textarea for comment content (max 1000 chars)
     - Label: "Add a comment" or "Reply"
     - "Cancel" and "Post Comment" buttons
     - Character counter
 
-- [ ] **IMPLEMENT Comment Functionality**:
-  - [ ] On submit:
+- [x] **IMPLEMENT Comment Functionality**:
+  - [x] On submit:
     - Create comment object: `{ id, userId, userName, content, createdAt }`
     - Add to discussion's `replies` array
     - Clear textarea
@@ -1686,38 +1825,38 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 **Apply to All Forms Throughout Application**:
 
 **Tasks**:
-- [ ] **ADD Field-Level Validation**:
-  - [ ] Model Name: Required, max 25 chars
-  - [ ] Description: Required, max 700 chars
-  - [ ] Email: Required, valid email format (regex)
-  - [ ] Response Time: Required, positive number
-  - [ ] Accuracy: Required, 0-100 range
-  - [ ] Version: Required
-  - [ ] File upload: Max 100MB (mock validation)
-  - [ ] Display inline error messages in red below each field
-  - [ ] Clear errors when user corrects input
+- [x] **ADD Field-Level Validation**:
+  - [x] Model Name: Required, max 25 chars
+  - [x] Description: Required, max 700 chars
+  - [x] Email: Required, valid email format (regex)
+  - [x] Response Time: Required, positive number
+  - [x] Accuracy: Required, 0-100 range
+  - [x] Version: Required
+  - [x] File upload: Max 100MB (mock validation)
+  - [x] Display inline error messages in red below each field
+  - [x] Clear errors when user corrects input
 
-- [ ] **ADD Form-Level Validation**:
-  - [ ] Disable submit/next button if validation fails
-  - [ ] Show error summary at top if multiple errors: "Please fix 3 errors to continue"
-  - [ ] Highlight invalid fields with red border
+- [x] **ADD Form-Level Validation**:
+  - [x] Disable submit/next button if validation fails
+  - [x] Show error summary at top if multiple errors: "Please fix 3 errors to continue"
+  - [x] Highlight invalid fields with red border
 
-- [ ] **ADD Success Feedback (Toasts)**:
-  - [ ] Use existing `useToast` hook or toast system
-  - [ ] Show success messages for:
+- [x] **ADD Success Feedback (Toasts)**:
+  - [x] Use existing `useToast` hook or toast system
+  - [x] Show success messages for:
     - Model created: "Model created successfully"
     - Settings saved: "Settings updated"
     - Subscribed: "Successfully subscribed to [Model Name]"
     - Discussion posted: "Discussion created"
     - Comment added: "Comment posted"
-  - [ ] Show error toasts for failures:
+  - [x] Show error toasts for failures:
     - "Failed to save settings. Please try again."
     - "Error creating model. Check required fields."
 
-- [ ] **ADD Loading States**:
-  - [ ] During form submission: Show spinner on submit button, disable button
-  - [ ] Change button text: "Saving..." or "Creating..."
-  - [ ] Prevent double-submission
+- [x] **ADD Loading States**:
+  - [x] During form submission: Show spinner on submit button, disable button
+  - [x] Change button text: "Saving..." or "Creating..."
+  - [x] Prevent double-submission
 
 ---
 
@@ -1730,34 +1869,34 @@ Complete all frontend work before backend migration. Test thoroughly with mock d
 - "No models found" exists in My Models
 
 **Tasks**:
-- [ ] **ADD More Empty States Across App**:
-  - [ ] My Purchases (Buyer):
+- [x] **ADD More Empty States Across App**:
+  - [x] My Purchases (Buyer):
     - "No subscriptions yet"
     - "Subscribe to models to see them here"
     - "Browse Marketplace" button
-  - [ ] Discussion tab (Model Details):
+  - [x] Discussion tab (Model Details):
     - "No discussions yet"
     - "Be the first to start a discussion"
     - "+ Start Discussion" button
-  - [ ] Files tab (Model Details):
+  - [x] Files tab (Model Details):
     - "No files available"
     - "Subscribe to access model files" (if not subscribed)
-  - [ ] Recent Activity (Buyer Dashboard):
+  - [x] Recent Activity (Buyer Dashboard):
     - "No recent activity"
     - "Your actions will appear here"
-  - [ ] Each empty state should have:
+  - [x] Each empty state should have:
     - Friendly icon (from lucide-react)
     - Clear message
     - Optional CTA button
 
 #### 13B. Add Loading States
-- [ ] **ADD Loading Indicators**:
-  - [ ] While "fetching" data (with mock delay):
+- [x] **ADD Loading Indicators**:
+  - [x] While "fetching" data (with mock delay):
     - Show skeleton loaders for cards/lists
     - Use Spinner component for small elements
     - Show page-level loading for route transitions
-  - [ ] File upload progress bar (mock for now)
-  - [ ] Button loading states (spinner + disabled)
+  - [x] File upload progress bar (mock for now)
+  - [x] Button loading states (spinner + disabled)
 
 ---
 

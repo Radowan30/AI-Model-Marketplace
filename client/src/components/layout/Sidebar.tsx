@@ -13,7 +13,22 @@ import {
 import { CURRENT_USER } from "@/lib/mock-data";
 import { Button } from "@/components/ui/button";
 
-export function Sidebar() {
+// Helper function to extract user initials
+const getInitials = (name: string): string => {
+  return name
+    .split(' ')
+    .map(part => part[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2); // Max 2 letters
+};
+
+interface SidebarProps {
+  mobileSidebarOpen?: boolean;
+  onClose?: () => void;
+}
+
+export function Sidebar({ mobileSidebarOpen = false, onClose }: SidebarProps) {
   const [location, setLocation] = useLocation();
 
   // Determine role based on current route
@@ -33,6 +48,11 @@ export function Sidebar() {
     // Clear user role from localStorage
     localStorage.removeItem('userRole');
     setLocation("/");
+    onClose?.(); // Close mobile sidebar
+  };
+
+  const handleLinkClick = () => {
+    onClose?.(); // Close mobile sidebar when nav link is clicked
   };
 
   const publisherLinks = [
@@ -51,8 +71,8 @@ export function Sidebar() {
 
   const links = role === "publisher" ? publisherLinks : buyerLinks;
 
-  return (
-    <aside className="hidden md:flex flex-col w-64 h-[calc(100vh-4rem)] fixed left-0 top-16 border-r border-border bg-background px-4">
+  const sidebarContent = (
+    <>
       <div className="flex-1 px-2 pt-6 overflow-y-auto">
         <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-4">
           {role === "publisher" ? "Publisher Portal" : "Buyer Portal"}
@@ -63,6 +83,7 @@ export function Sidebar() {
             return (
               <Link key={link.href} href={link.href}>
                 <a
+                  onClick={handleLinkClick}
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200",
                     isActive
@@ -79,7 +100,28 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="px-2 py-4 border-t border-border shrink-0">
+      <div className="px-2 py-4 border-t border-border shrink-0 space-y-3">
+        {/* User Info Section */}
+        <div className="flex items-center gap-3 px-3 py-2">
+          {/* User Initials Circle */}
+          <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center shrink-0">
+            <span className="text-white font-bold text-sm">
+              {getInitials(CURRENT_USER.name)}
+            </span>
+          </div>
+
+          {/* User Name and Role Badge */}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-foreground truncate">
+              {CURRENT_USER.name}
+            </p>
+            <span className="inline-block mt-1 px-2 py-0.5 text-xs font-medium bg-secondary text-secondary-foreground rounded-full">
+              {role === "publisher" ? "Publisher" : "Buyer"}
+            </span>
+          </div>
+        </div>
+
+        {/* Logout Button */}
         <button
           onClick={handleLogout}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-all duration-200"
@@ -88,6 +130,35 @@ export function Sidebar() {
           <span>Logout</span>
         </button>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Backdrop for mobile */}
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-40 md:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      {/* Desktop Sidebar - Always visible on desktop */}
+      <aside className="hidden md:flex flex-col w-64 h-[calc(100vh-4rem)] fixed left-0 top-16 border-r border-border bg-background px-4">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile Sidebar - Slides in from left */}
+      <aside
+        className={cn(
+          "md:hidden flex flex-col w-64 h-screen fixed left-0 top-0 border-r border-border bg-background px-4 z-50 transition-transform duration-300 ease-in-out",
+          mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        )}
+      >
+        {/* Add padding top for mobile to account for navbar */}
+        <div className="h-16" />
+        {sidebarContent}
+      </aside>
+    </>
   );
 }

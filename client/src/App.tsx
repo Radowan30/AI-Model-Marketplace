@@ -10,8 +10,11 @@ import AuthPage from "@/pages/auth";
 import PublisherDashboard from "@/pages/publisher/dashboard";
 import MyModelsPage from "@/pages/publisher/my-models";
 import CreateModelPage from "@/pages/publisher/create-model";
+import EditModelPage from "@/pages/publisher/edit-model";
+import SettingsPage from "@/pages/publisher/settings";
 import BuyerDashboard from "@/pages/buyer/dashboard";
 import MyPurchasesPage from "@/pages/buyer/my-purchases";
+import BuyerSettingsPage from "@/pages/buyer/settings";
 import MarketplacePage from "@/pages/marketplace";
 import ModelDetailsPage from "@/pages/model-details";
 
@@ -25,10 +28,13 @@ function Router() {
       <Route path="/publisher/dashboard" component={PublisherDashboard} />
       <Route path="/publisher/my-models" component={MyModelsPage} />
       <Route path="/publisher/create-model" component={CreateModelPage} />
+      <Route path="/publisher/edit-model/:id" component={EditModelPage} />
+      <Route path="/publisher/settings" component={SettingsPage} />
       
       {/* Buyer Routes */}
       <Route path="/buyer/dashboard" component={BuyerDashboard} />
       <Route path="/buyer/my-purchases" component={MyPurchasesPage} />
+      <Route path="/buyer/settings" component={BuyerSettingsPage} />
       
       {/* Shared Routes */}
       <Route path="/marketplace" component={MarketplacePage} />

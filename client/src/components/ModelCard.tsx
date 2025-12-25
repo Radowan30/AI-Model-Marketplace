@@ -1,7 +1,7 @@
 import { Model } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Eye, Download, Activity, Clock, ShieldCheck } from "lucide-react";
+import { Eye, Download, Activity, Clock, ShieldCheck, CheckCircle } from "lucide-react";
 import { Link } from "wouter";
 
 interface ModelCardProps {
@@ -20,9 +20,17 @@ export function ModelCard({ model, mode = "action", subscribed = false }: ModelC
         <CardContent className="p-6 flex-1 flex flex-col gap-4">
           <div className="flex justify-between items-start gap-4">
             <div>
-              <Badge variant="outline" className="mb-2 text-xs font-normal text-muted-foreground border-primary/20 bg-primary/5">
-                {model.category}
-              </Badge>
+              <div className="flex items-center gap-2 mb-2">
+                <Badge variant="outline" className="text-xs font-normal text-muted-foreground border-primary/20 bg-primary/5">
+                  {model.category}
+                </Badge>
+                {subscribed && (
+                  <Badge className="bg-green-500 hover:bg-green-600 text-white text-xs gap-1">
+                    <CheckCircle className="w-3 h-3" />
+                    Subscribed
+                  </Badge>
+                )}
+              </div>
               <h3 className="font-heading font-bold text-lg leading-tight group-hover:text-primary transition-colors">
                 {model.name}
               </h3>

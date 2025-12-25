@@ -10,7 +10,7 @@ export interface User {
   bio?: string;
 }
 
-export type SubscriptionStatus = 'active' | 'pending' | 'cancelled' | 'expired';
+export type SubscriptionStatus = 'active' | 'pending' | 'cancelled';
 
 export interface Subscription {
   id: string;
@@ -18,7 +18,7 @@ export interface Subscription {
   buyerId: string;
   status: SubscriptionStatus;
   startDate: string;
-  expiryDate?: string;
+  cancelledDate?: string;
 }
 
 export type ModelStatus = 'draft' | 'published' | 'archived';
@@ -29,10 +29,12 @@ export interface Model {
   description: string;
   publisherId: string;
   publisherName: string;
+  publisherEmail: string;
   category: string;
   version: string;
   status: ModelStatus;
   price: 'free' | 'paid';
+  priceAmount?: number; // Price in MYR (only for paid models)
   tags: string[];
   stats: {
     views: number;
@@ -43,6 +45,13 @@ export interface Model {
   };
   features: string[];
   updatedAt: string;
+  publishedDate: string;
+  collaborators?: string[]; // Array of collaborator emails
+  apiDocumentation?: string; // API docs in markdown, JSON, or plain text
+  pageViews30Days: number;
+  activeSubscribers: number;
+  totalSubscribers: number;
+  discussionCount: number;
 }
 
 export interface Discussion {

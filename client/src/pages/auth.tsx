@@ -9,21 +9,136 @@ import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Check } from "lucide-react";
 import generatedImage from '@assets/generated_images/mimos_ai_marketplace_hero_background.png';
+import { USERS } from "@/lib/mock-data";
 
 export default function AuthPage() {
   const [loading, setLoading] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(false);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
-  const handleLogin = (e: React.FormEvent, role: string) => {
+  const handleRegister = (e: React.FormEvent, role: 'buyer' | 'publisher') => {
     e.preventDefault();
     setLoading(true);
 
+    const formData = new FormData(e.target as HTMLFormElement);
+    const name = formData.get(role === 'buyer' ? 'name' : 'pub-name') as string;
+    const email = formData.get(role === 'buyer' ? 'email' : 'pub-email') as string;
+    const password = formData.get(role === 'buyer' ? 'password' : 'pub-password') as string;
+    const confirmPassword = formData.get(role === 'buyer' ? 'confirm-password' : 'pub-confirm-password') as string;
+
+    // Validate password match
+    if (password !== confirmPassword) {
+      setLoading(false);
+      toast({
+        title: "Error",
+        description: "Passwords do not match.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     // Simulate API delay
     setTimeout(() => {
+      // Check if user with this email already exists
+      const existingUser = USERS.find(u => u.email === email);
+
+      if (existingUser) {
+        // Check if user already has this role
+        if (existingUser.roles.includes(role)) {
+          setLoading(false);
+          toast({
+            title: "Error",
+            description: `An account with this email already exists as ${role}.`,
+            variant: "destructive",
+          });
+          return;
+        }
+
+        // Add new role to existing user
+        existingUser.roles.push(role);
+        localStorage.setItem('userId', existingUser.id);
+        localStorage.setItem('userRole', role);
+
+        toast({
+          title: "Role added successfully!",
+          description: `${role.charAt(0).toUpperCase() + role.slice(1)} role has been added to your account.`,
+        });
+      } else {
+        // Create new user
+        const newUser = {
+          id: String(USERS.length + 1),
+          email,
+          name,
+          password,
+          roles: [role] as ('buyer' | 'publisher')[]
+        };
+        USERS.push(newUser);
+
+        localStorage.setItem('userId', newUser.id);
+        localStorage.setItem('userRole', role);
+
+        toast({
+          title: "Account created!",
+          description: "Welcome to MIMOS AI Marketplace.",
+        });
+      }
+
       setLoading(false);
-      // Store user role in localStorage
+      setLocation(role === 'publisher' ? '/publisher/dashboard' : '/buyer/dashboard');
+    }, 1000);
+  };
+
+  const handleLogin = (e: React.FormEvent, role: 'buyer' | 'publisher') => {
+    e.preventDefault();
+    setLoading(true);
+
+    const formData = new FormData(e.target as HTMLFormElement);
+    const email = formData.get(role === 'buyer' ? 'email' : 'pub-email') as string;
+    const password = formData.get(role === 'buyer' ? 'password' : 'pub-password') as string;
+
+    // Simulate API delay
+    setTimeout(() => {
+      // Find user by email
+      const user = USERS.find(u => u.email === email);
+
+      if (!user) {
+        setLoading(false);
+        toast({
+          title: "Error",
+          description: "Invalid email or password.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate password
+      if (user.password !== password) {
+        setLoading(false);
+        toast({
+          title: "Error",
+          description: "Invalid email or password.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Check if user has the selected role
+      if (!user.roles.includes(role)) {
+        setLoading(false);
+        toast({
+          title: "Error",
+          description: `You don't have ${role} access. Please check your account role or register as ${role}.`,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Store userId and userRole in localStorage
+      localStorage.setItem('userId', user.id);
       localStorage.setItem('userRole', role);
+
+      setLoading(false);
       toast({
         title: "Welcome back!",
         description: "Successfully logged in.",
@@ -48,9 +163,14 @@ export default function AuthPage() {
             <div className="mx-auto w-12 h-12 bg-primary rounded-lg flex items-center justify-center shadow-md mb-2">
               <span className="text-primary-foreground font-bold text-xl">M</span>
             </div>
-            <CardTitle className="text-2xl font-heading">Welcome to MIMOS</CardTitle>
+            <CardTitle className="text-2xl font-heading">
+              {isRegistering ? "Create Account" : "Welcome to MIMOS"}
+            </CardTitle>
             <CardDescription>
-              Sign in to manage models or subscribe to AI services
+              {isRegistering
+                ? "Register to start managing AI models or subscribe to services"
+                : "Login to manage models or subscribe to AI services"
+              }
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -61,42 +181,99 @@ export default function AuthPage() {
               </TabsList>
               
               <TabsContent value="buyer">
-                <form onSubmit={(e) => handleLogin(e, 'buyer')} className="space-y-4">
+                <form onSubmit={(e) => isRegistering ? handleRegister(e, 'buyer') : handleLogin(e, 'buyer')} className="space-y-4">
+                  {isRegistering && (
+                    <div className="space-y-2">
+                      <Label htmlFor="name">Full Name</Label>
+                      <Input id="name" name="name" type="text" placeholder="John Doe" required />
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" type="email" placeholder="name@company.com" required defaultValue="buyer@example.com" />
+                    <Input id="email" name="email" type="email" placeholder="name@company.com" required defaultValue={isRegistering ? "" : "buyer@example.com"} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="password">Password</Label>
-                    <Input id="password" type="password" required defaultValue="password" />
+                    <Input id="password" name="password" type="password" required defaultValue={isRegistering ? "" : "password"} />
                   </div>
+                  {isRegistering && (
+                    <div className="space-y-2">
+                      <Label htmlFor="confirm-password">Confirm Password</Label>
+                      <Input id="confirm-password" name="confirm-password" type="password" required />
+                    </div>
+                  )}
                   <Button type="submit" className="w-full mt-2" disabled={loading}>
-                    {loading ? "Signing in..." : "Sign In as Buyer"}
+                    {loading
+                      ? (isRegistering ? "Creating account..." : "Logging in...")
+                      : (isRegistering ? "Create Buyer Account" : "Login as Buyer")
+                    }
                   </Button>
+                  <div className="text-center mt-4 text-sm">
+                    <span className="text-muted-foreground">
+                      {isRegistering ? "Already have an account? " : "Don't have an account? "}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsRegistering(!isRegistering)}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      {isRegistering ? "Login" : "Sign Up"}
+                    </button>
+                  </div>
                 </form>
               </TabsContent>
               
               <TabsContent value="publisher">
-                <form onSubmit={(e) => handleLogin(e, 'publisher')} className="space-y-4">
+                <form onSubmit={(e) => isRegistering ? handleRegister(e, 'publisher') : handleLogin(e, 'publisher')} className="space-y-4">
                    <div className="bg-primary/5 p-4 rounded-md border border-primary/20 mb-4">
                       <h4 className="text-sm font-semibold text-primary flex items-center gap-2">
                         <Check className="w-4 h-4" /> Publisher Access
                       </h4>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Log in to manage your deployed models, view analytics, and respond to buyer inquiries.
+                        {isRegistering
+                          ? "Register to publish AI models, view analytics, and respond to buyer inquiries."
+                          : "Log in to manage your deployed models, view analytics, and respond to buyer inquiries."
+                        }
                       </p>
                    </div>
+                  {isRegistering && (
+                    <div className="space-y-2">
+                      <Label htmlFor="pub-name">Full Name</Label>
+                      <Input id="pub-name" name="pub-name" type="text" placeholder="Dr. Aminah Hassan" required />
+                    </div>
+                  )}
                   <div className="space-y-2">
                     <Label htmlFor="pub-email">Institutional Email</Label>
-                    <Input id="pub-email" type="email" placeholder="name@mimos.my" required defaultValue="aminah@mimos.my" />
+                    <Input id="pub-email" name="pub-email" type="email" placeholder="name@mimos.my" required defaultValue={isRegistering ? "" : "aminah@mimos.my"} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="pub-password">Password</Label>
-                    <Input id="pub-password" type="password" required defaultValue="password" />
+                    <Input id="pub-password" name="pub-password" type="password" required defaultValue={isRegistering ? "" : "password"} />
                   </div>
+                  {isRegistering && (
+                    <div className="space-y-2">
+                      <Label htmlFor="pub-confirm-password">Confirm Password</Label>
+                      <Input id="pub-confirm-password" name="pub-confirm-password" type="password" required />
+                    </div>
+                  )}
                   <Button type="submit" className="w-full mt-2" disabled={loading}>
-                    {loading ? "Signing in..." : "Sign In as Publisher"}
+                    {loading
+                      ? (isRegistering ? "Creating account..." : "Logging in...")
+                      : (isRegistering ? "Create Publisher Account" : "Login as Publisher")
+                    }
                   </Button>
+                  <div className="text-center mt-4 text-sm">
+                    <span className="text-muted-foreground">
+                      {isRegistering ? "Already have an account? " : "Don't have an account? "}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsRegistering(!isRegistering)}
+                      className="text-primary hover:underline font-medium"
+                    >
+                      {isRegistering ? "Login" : "Sign Up"}
+                    </button>
+                  </div>
                 </form>
               </TabsContent>
             </Tabs>

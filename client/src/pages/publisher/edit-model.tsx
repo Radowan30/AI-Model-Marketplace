@@ -7,12 +7,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useState, useEffect } from "react";
+import { useLocation, useRoute } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRight, Check, Upload, FileText, Code, Users, X, Plus, Info, Trash2, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Upload, FileText, Code, Users, X, Plus, Info, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CURRENT_USER } from "@/lib/mock-data";
+import { CURRENT_USER, MOCK_MODELS } from "@/lib/mock-data";
 
 const STEPS = [
   { id: 1, title: "General Info", icon: FileText },
@@ -56,7 +56,10 @@ const getInitials = (name: string): string => {
     .slice(0, 2);
 };
 
-export default function CreateModelPage() {
+export default function EditModelPage() {
+  const [match, params] = useRoute("/publisher/edit-model/:id");
+  const modelId = params?.id;
+  const model = MOCK_MODELS.find(m => m.id === modelId);
   const [step, setStep] = useState(1);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
@@ -93,10 +96,34 @@ export default function CreateModelPage() {
   const [selectedPublisher, setSelectedPublisher] = useState("");
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
 
-  // Validation & UI state
-  const [touched, setTouched] = useState<{[key: string]: boolean}>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showErrorSummary, setShowErrorSummary] = useState(false);
+  // Pre-fill form with existing model data
+  useEffect(() => {
+    if (model) {
+      setModelName(model.name);
+      setShortDescription(model.description);
+      setCategory(model.category);
+      setVersion(model.version);
+      setPriceType(model.price);
+      setPrice(model.priceAmount?.toString() || "");
+      setFeatures(model.features);
+      setResponseTime(model.stats.responseTime.toString());
+      setAccuracy(model.stats.accuracy.toString());
+    }
+  }, [model]);
+
+  // Redirect if model not found
+  if (!model) {
+    return (
+      <Layout type="dashboard">
+        <div className="flex flex-col items-center justify-center min-h-[400px]">
+          <h2 className="text-2xl font-bold mb-4">Model Not Found</h2>
+          <Button onClick={() => setLocation("/publisher/my-models")}>
+            Back to My Models
+          </Button>
+        </div>
+      </Layout>
+    );
+  }
 
   // Validation for Tab 1: General Info
   const isTab1Complete = () => {
@@ -158,52 +185,6 @@ export default function CreateModelPage() {
     return isTab1Complete() && isTab2Complete() && isTab3Complete();
   };
 
-  // Field-level validation errors
-  const getFieldError = (fieldName: string): string | null => {
-    if (!touched[fieldName]) return null;
-
-    switch (fieldName) {
-      case 'modelName':
-        if (!modelName.trim()) return "Model name is required";
-        if (modelName.length > 25) return "Model name must be 25 characters or less";
-        return null;
-      case 'shortDescription':
-        if (!shortDescription.trim()) return "Short description is required";
-        if (shortDescription.length > 700) return "Description must be 700 characters or less";
-        return null;
-      case 'category':
-        if (!category.trim()) return "Category is required";
-        return null;
-      case 'version':
-        if (!version.trim()) return "Version is required";
-        return null;
-      case 'priceType':
-        if (!priceType) return "Price type is required";
-        return null;
-      case 'price':
-        if (priceType === 'paid') {
-          if (!price.trim()) return "Price is required for paid models";
-          if (parseFloat(price) <= 0) return "Price must be greater than 0";
-        }
-        return null;
-      case 'responseTime':
-        if (!responseTime.trim()) return "Response time is required";
-        if (parseFloat(responseTime) <= 0) return "Response time must be a positive number";
-        return null;
-      case 'accuracy':
-        if (!accuracy.trim()) return "Accuracy is required";
-        const accNum = parseFloat(accuracy);
-        if (isNaN(accNum) || accNum < 0 || accNum > 100) return "Accuracy must be between 0 and 100";
-        return null;
-      default:
-        return null;
-    }
-  };
-
-  const markFieldTouched = (fieldName: string) => {
-    setTouched(prev => ({ ...prev, [fieldName]: true }));
-  };
-
   const handleNext = () => {
     if (step < 4) {
       setStep(step + 1);
@@ -216,44 +197,24 @@ export default function CreateModelPage() {
     if (step > 1) setStep(step - 1);
   };
 
-  const handleSubmit = async () => {
-    // Mark all fields as touched to show validation errors
-    setTouched({
-      modelName: true,
-      shortDescription: true,
-      category: true,
-      version: true,
-      priceType: true,
-      price: true,
-      responseTime: true,
-      accuracy: true,
-    });
-
+  const handleSubmit = () => {
     if (!isAllRequiredFieldsComplete()) {
       const missingFields = [];
       if (!isTab1Complete()) missingFields.push("General Info");
-      if (!isTab2Complete()) missingFields.push("Technical Details");
-      if (!isTab3Complete()) missingFields.push("Files & Assets");
+      if (!isTab2Complete()) missingFields.push("Technical Details (Response Time & Accuracy)");
+      if (!isTab3Complete()) missingFields.push("Files & Assets (at least one file)");
 
-      setShowErrorSummary(true);
       toast({
         title: "Validation Error",
-        description: `Please fix ${missingFields.length} error${missingFields.length > 1 ? 's' : ''} to continue`,
+        description: `Please complete all required fields: ${missingFields.join(", ")}`,
         variant: "destructive",
       });
       return;
     }
 
-    setIsSubmitting(true);
-    setShowErrorSummary(false);
-
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
-    setIsSubmitting(false);
     toast({
-      title: "Model Created Successfully",
-      description: "Your model has been submitted for review.",
+      title: "Model Updated Successfully",
+      description: "Your changes have been saved.",
     });
     setLocation("/publisher/my-models");
   };
@@ -392,8 +353,8 @@ export default function CreateModelPage() {
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <div>
-             <h1 className="text-3xl font-heading font-bold">Create New Model</h1>
-             <p className="text-muted-foreground">Follow the steps to publish your AI model.</p>
+             <h1 className="text-3xl font-heading font-bold">Edit Model</h1>
+             <p className="text-muted-foreground">Update your model information.</p>
           </div>
         </div>
 
@@ -441,21 +402,6 @@ export default function CreateModelPage() {
           </div>
         </div>
 
-        {/* Error Summary */}
-        {showErrorSummary && !isAllRequiredFieldsComplete() && (
-          <Alert variant="destructive" className="mb-6">
-            <Info className="h-4 w-4" />
-            <AlertDescription>
-              Please fix the following errors to continue:
-              <ul className="list-disc list-inside mt-2 space-y-1">
-                {!isTab1Complete() && <li>Complete General Info (name, description, category, version, price type)</li>}
-                {!isTab2Complete() && <li>Complete Technical Details (response time and accuracy)</li>}
-                {!isTab3Complete() && <li>Add at least one file</li>}
-              </ul>
-            </AlertDescription>
-          </Alert>
-        )}
-
         {/* Wizard Content */}
         <Card className="min-h-[400px] border-border/50 shadow-md">
            <CardContent className="p-8">
@@ -468,17 +414,9 @@ export default function CreateModelPage() {
                          <Input
                            placeholder="e.g. Traffic Pattern Analyzer Pro"
                            value={modelName}
-                           onChange={(e) => {
-                             setModelName(e.target.value.slice(0, 25));
-                             if (touched.modelName) markFieldTouched('modelName');
-                           }}
-                           onBlur={() => markFieldTouched('modelName')}
+                           onChange={(e) => setModelName(e.target.value.slice(0, 25))}
                            maxLength={25}
-                           className={cn(getFieldError('modelName') && "border-destructive")}
                          />
-                         {getFieldError('modelName') && (
-                           <p className="text-xs text-destructive">{getFieldError('modelName')}</p>
-                         )}
                          <p className={cn(
                            "text-xs",
                            modelName.length > 20 ? "text-destructive" : "text-muted-foreground"
@@ -544,7 +482,7 @@ export default function CreateModelPage() {
 
                       {priceType === "paid" && (
                         <div className="space-y-2">
-                           <Label>Price (MYR / Month) <span className="text-destructive">*</span></Label>
+                           <Label>Price (MYR) <span className="text-destructive">*</span></Label>
                            <Input
                              type="number"
                              placeholder="e.g., 1000.00"
@@ -933,25 +871,16 @@ export default function CreateModelPage() {
 
         {/* Footer Actions */}
         <div className="flex justify-between">
-           <Button variant="outline" onClick={handleBack} disabled={step === 1 || isSubmitting}>
+           <Button variant="outline" onClick={handleBack} disabled={step === 1}>
               Back
            </Button>
            <Button
              onClick={handleNext}
              className="gap-2"
-             disabled={(step === 4 && !isAllRequiredFieldsComplete()) || isSubmitting}
+             disabled={step === 4 && !isAllRequiredFieldsComplete()}
            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                <>
-                  {step === 4 ? "Create Model" : "Next Step"}
-                  {step !== 4 && <ArrowRight className="w-4 h-4" />}
-                </>
-              )}
+              {step === 4 ? "Update Model" : "Next Step"}
+              {step !== 4 && <ArrowRight className="w-4 h-4" />}
            </Button>
         </div>
 
