@@ -7,13 +7,33 @@ import {
   Settings,
   PlusCircle,
   BarChart3,
-  Search
+  Search,
+  LogOut
 } from "lucide-react";
 import { CURRENT_USER } from "@/lib/mock-data";
+import { Button } from "@/components/ui/button";
 
 export function Sidebar() {
-  const [location] = useLocation();
-  const role = CURRENT_USER.role;
+  const [location, setLocation] = useLocation();
+
+  // Determine role based on current route
+  // Marketplace without preview param is for buyers, with preview is for publishers
+  const urlParams = new URLSearchParams(window.location.search);
+  const isPreviewMode = urlParams.get('preview') === 'true';
+  const isMarketplace = location.includes('/marketplace');
+
+  const isPublisherMarketplace = isMarketplace && isPreviewMode;
+  const isBuyerMarketplace = isMarketplace && !isPreviewMode;
+
+  const role = location.startsWith('/buyer') || isBuyerMarketplace ? 'buyer' :
+               location.startsWith('/publisher') || isPublisherMarketplace ? 'publisher' :
+               CURRENT_USER.role;
+
+  const handleLogout = () => {
+    // Clear user role from localStorage
+    localStorage.removeItem('userRole');
+    setLocation("/");
+  };
 
   const publisherLinks = [
     { icon: LayoutDashboard, label: "Analytics", href: "/publisher/dashboard" },
@@ -32,8 +52,8 @@ export function Sidebar() {
   const links = role === "publisher" ? publisherLinks : buyerLinks;
 
   return (
-    <aside className="hidden md:flex flex-col w-64 h-screen fixed left-0 top-16 border-r border-border bg-background pt-6 pb-10 px-4">
-      <div className="mb-8 px-2">
+    <aside className="hidden md:flex flex-col w-64 h-[calc(100vh-4rem)] fixed left-0 top-16 border-r border-border bg-background px-4">
+      <div className="flex-1 px-2 pt-6 overflow-y-auto">
         <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-4">
           {role === "publisher" ? "Publisher Portal" : "Buyer Portal"}
         </p>
@@ -59,16 +79,15 @@ export function Sidebar() {
         </div>
       </div>
 
-      {role === "publisher" && (
-        <div className="mt-auto px-2">
-           <Link href="/publisher/create-model">
-            <a className="flex items-center justify-center gap-2 w-full bg-primary hover:bg-primary/90 text-primary-foreground py-2.5 rounded-md text-sm font-medium transition-colors shadow-md hover:shadow-lg">
-              <PlusCircle className="w-4 h-4" />
-              <span>Create Model</span>
-            </a>
-           </Link>
-        </div>
-      )}
+      <div className="px-2 py-4 border-t border-border shrink-0">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium text-muted-foreground hover:bg-secondary hover:text-foreground transition-all duration-200"
+        >
+          <LogOut className="w-4 h-4 text-muted-foreground" />
+          <span>Logout</span>
+        </button>
+      </div>
     </aside>
   );
 }

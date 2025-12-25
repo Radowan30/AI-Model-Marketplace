@@ -18,10 +18,12 @@ export default function AuthPage() {
   const handleLogin = (e: React.FormEvent, role: string) => {
     e.preventDefault();
     setLoading(true);
-    
+
     // Simulate API delay
     setTimeout(() => {
       setLoading(false);
+      // Store user role in localStorage
+      localStorage.setItem('userRole', role);
       toast({
         title: "Welcome back!",
         description: "Successfully logged in.",

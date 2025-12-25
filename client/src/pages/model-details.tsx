@@ -20,7 +20,7 @@ export default function ModelDetailsPage() {
 
   // In a real app, check subscription status from backend
   // Here we just toggle state for demo
-  
+
   if (!model) return <div>Model not found</div>;
 
   const handleSubscribe = () => {
@@ -31,10 +31,14 @@ export default function ModelDetailsPage() {
     });
   };
 
+  // Determine marketplace URL based on user role
+  const marketplaceUrl = CURRENT_USER.role === 'publisher' ? '/marketplace?preview=true' : '/marketplace';
+  const isPublisher = CURRENT_USER.role === 'publisher';
+
   return (
     <Layout type="dashboard">
        <div className="max-w-5xl mx-auto space-y-8">
-          <Link href="/marketplace">
+          <Link href={marketplaceUrl}>
              <Button variant="ghost" className="gap-2 pl-0 hover:pl-2 transition-all">
                 <ArrowLeft className="w-4 h-4" /> Back to Marketplace
              </Button>
@@ -73,22 +77,29 @@ export default function ModelDetailsPage() {
                          <span className="font-mono text-sm">{model.version}</span>
                       </div>
                    </div>
-                   
+
                    <Separator className="bg-primary/10" />
-                   
-                   {subscribed ? (
+
+                   {isPublisher ? (
+                      <div className="text-center py-2">
+                         <p className="text-sm text-muted-foreground">
+                           Preview Mode - Subscription only available for buyers
+                         </p>
+                      </div>
+                   ) : subscribed ? (
                       <Button className="w-full gap-2 bg-green-600 hover:bg-green-700">
                          <CheckCircle className="w-4 h-4" /> Access Active
                       </Button>
                    ) : (
-                      <Button className="w-full shadow-md" onClick={handleSubscribe}>
-                         {model.price === 'free' ? 'Get for Free' : 'Subscribe to Access'}
-                      </Button>
+                      <>
+                         <Button className="w-full shadow-md" onClick={handleSubscribe}>
+                            {model.price === 'free' ? 'Get for Free' : 'Subscribe to Access'}
+                         </Button>
+                         <p className="text-xs text-center text-muted-foreground">
+                            By subscribing, you agree to the <a href="#" className="underline">Terms of Use</a>.
+                         </p>
+                      </>
                    )}
-                   
-                   <p className="text-xs text-center text-muted-foreground">
-                      By subscribing, you agree to the <a href="#" className="underline">Terms of Use</a>.
-                   </p>
                 </CardContent>
              </Card>
           </div>
@@ -182,7 +193,13 @@ POST /api/v1/predict
 
              <TabsContent value="files" className="py-6">
                 <div className="space-y-4">
-                   {subscribed ? (
+                   {isPublisher ? (
+                      <div className="flex flex-col items-center justify-center py-12 bg-secondary/20 rounded-lg border border-dashed border-border">
+                         <Lock className="w-12 h-12 text-muted-foreground mb-4" />
+                         <h3 className="text-lg font-bold">Preview Mode</h3>
+                         <p className="text-muted-foreground mb-4">File downloads are only available for buyers.</p>
+                      </div>
+                   ) : subscribed ? (
                       <>
                          <Card>
                             <CardContent className="p-4 flex items-center justify-between">

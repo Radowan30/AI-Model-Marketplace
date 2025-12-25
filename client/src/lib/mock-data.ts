@@ -1,10 +1,18 @@
 import { Model, Subscription, User, Discussion } from './types';
 
+// Get user role from localStorage, default to 'publisher' if not set
+const getUserRole = (): 'publisher' | 'buyer' => {
+  const storedRole = localStorage.getItem('userRole');
+  return (storedRole === 'buyer' || storedRole === 'publisher') ? storedRole : 'publisher';
+};
+
 export const CURRENT_USER: User = {
   id: 'u1',
   name: 'Dr. Aminah',
   email: 'aminah@mimos.my',
-  role: 'publisher', // Change to 'buyer' to test buyer view
+  get role() {
+    return getUserRole();
+  },
   company: 'MIMOS Berhad',
   bio: 'Senior AI Researcher specializing in NLP and Computer Vision.',
   avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&q=80&w=150',

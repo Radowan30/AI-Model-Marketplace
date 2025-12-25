@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { Menu, X, Bell, Search, LogOut, User } from "lucide-react";
+import { Menu, X, Bell, Search, LogOut, User, Laptop } from "lucide-react";
 import { useState, useEffect } from "react";
 import { CURRENT_USER } from "@/lib/mock-data";
 import {
@@ -35,6 +35,8 @@ export function Navbar({ layout = "public" }: NavbarProps) {
   const isDashboard = layout === "dashboard";
 
   const handleLogout = () => {
+    // Clear user role from localStorage
+    localStorage.removeItem('userRole');
     setLocation("/");
   };
 
@@ -67,9 +69,9 @@ export function Navbar({ layout = "public" }: NavbarProps) {
         {/* Desktop Nav - Public */}
         {!isDashboard && (
           <div className="hidden md:flex items-center gap-8">
-            <Link href="/marketplace">
-              <a className="text-sm font-medium hover:text-primary transition-colors">Marketplace</a>
-            </Link>
+            <a href="#features" className="text-sm font-medium hover:text-primary transition-colors">
+              Features
+            </a>
             <Link href="/about">
               <a className="text-sm font-medium hover:text-primary transition-colors">About Us</a>
             </Link>
@@ -101,11 +103,8 @@ export function Navbar({ layout = "public" }: NavbarProps) {
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="relative h-9 w-9 rounded-full">
-                  <Avatar className="h-9 w-9 border border-border">
-                    <AvatarImage src={CURRENT_USER.avatar} alt={CURRENT_USER.name} />
-                    <AvatarFallback>{CURRENT_USER.name.charAt(0)}</AvatarFallback>
-                  </Avatar>
+                <Button variant="ghost" className="relative h-9 w-9 rounded-full bg-primary/10 hover:bg-primary/20">
+                  <Laptop className="h-5 w-5 text-primary" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56" align="end" forceMount>
@@ -145,9 +144,9 @@ export function Navbar({ layout = "public" }: NavbarProps) {
         <div className="md:hidden absolute top-16 left-0 right-0 bg-background border-b p-4 shadow-lg flex flex-col gap-4 animate-in slide-in-from-top-2">
            {!isDashboard ? (
              <>
-               <Link href="/marketplace" onClick={() => setMobileMenuOpen(false)}>
-                <a className="text-sm font-medium py-2">Marketplace</a>
-               </Link>
+               <a href="#features" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium py-2">
+                Features
+               </a>
                <Link href="/auth" onClick={() => setMobileMenuOpen(false)}>
                  <Button className="w-full">Login</Button>
                </Link>
