@@ -7,12 +7,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useState, useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRight, Check, Upload, FileText, Code, Users, X, Plus, Info, Trash2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Upload, FileText, Code, Users, X, Plus, Info, Trash2, Loader2, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { CURRENT_USER, MOCK_MODELS } from "@/lib/mock-data";
+import { useAuth } from "@/hooks/use-auth";
+import { uploadFileWithProgress, saveExternalUrl, validateFile, formatFileSize, fetchModelFiles, deleteFile } from "@/lib/file-upload";
+import { fetchModelById, updateModel } from "@/lib/api";
+import { Progress } from "@/components/ui/progress";
+import { supabase } from "@/lib/supabase";
+import { Category } from "@/lib/types";
+import { ApiSpecRenderer } from "@/components/ApiSpecRenderer";
 
 const STEPS = [
   { id: 1, title: "General Info", icon: FileText },
@@ -44,6 +53,10 @@ interface FileEntry {
   file?: File;
   url?: string;
   size?: number;
+  fileId?: string; // Database file ID
+  filePath?: string; // Storage path (for deleting uploaded files)
+  uploading?: boolean;
+  uploadProgress?: number;
 }
 
 // Helper function to get user initials
@@ -59,15 +72,26 @@ const getInitials = (name: string): string => {
 export default function EditModelPage() {
   const [match, params] = useRoute("/publisher/edit-model/:id");
   const modelId = params?.id;
-  const model = MOCK_MODELS.find(m => m.id === modelId);
   const [step, setStep] = useState(1);
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { user, userProfile } = useAuth();
+  const [model, setModel] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Categories state
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [categoryPopoverOpen, setCategoryPopoverOpen] = useState(false);
+  const [newCategoryDialogOpen, setNewCategoryDialogOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
 
   // Tab 1: General Info state
   const [modelName, setModelName] = useState("");
   const [shortDescription, setShortDescription] = useState("");
-  const [category, setCategory] = useState("");
   const [version, setVersion] = useState("");
   const [priceType, setPriceType] = useState<"free" | "paid" | "">("");
   const [price, setPrice] = useState("");
@@ -88,6 +112,8 @@ export default function EditModelPage() {
   const [fileUrl, setFileUrl] = useState("");
   const [fileDescription, setFileDescription] = useState("");
   const [files, setFiles] = useState<FileEntry[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
 
   // Tab 4: Collaborators state
   const [collabEmail, setCollabEmail] = useState("");
@@ -96,22 +122,185 @@ export default function EditModelPage() {
   const [selectedPublisher, setSelectedPublisher] = useState("");
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
 
-  // Pre-fill form with existing model data
+  // Fetch model and files from database
   useEffect(() => {
-    if (model) {
-      setModelName(model.name);
-      setShortDescription(model.description);
-      setCategory(model.category);
-      setVersion(model.version);
-      setPriceType(model.price);
-      setPrice(model.priceAmount?.toString() || "");
-      setFeatures(model.features);
-      setResponseTime(model.stats.responseTime.toString());
-      setAccuracy(model.stats.accuracy.toString());
-    }
-  }, [model]);
+    const loadModel = async () => {
+      if (!modelId) return;
 
-  // Redirect if model not found
+      try {
+        setLoading(true);
+        const fetchedModel = await fetchModelById(modelId);
+        setModel(fetchedModel);
+
+        // Pre-fill form with existing model data
+        setModelName(fetchedModel.name);
+        setShortDescription(fetchedModel.shortDescription);
+        setDetailedDescription(fetchedModel.detailedDescription);
+        setVersion(fetchedModel.version);
+        setPriceType(fetchedModel.price);
+        setPrice(fetchedModel.priceAmount?.toString() || "");
+        setFeatures(fetchedModel.features);
+        setResponseTime(fetchedModel.stats.responseTime.toString());
+        setAccuracy(fetchedModel.stats.accuracy.toString());
+        setApiSpec(fetchedModel.apiDocumentation || "");
+
+        // Fetch model's categories
+        const { data: modelCategoriesData, error: modelCategoriesError } = await supabase
+          .from('model_categories')
+          .select('category_id')
+          .eq('model_id', modelId);
+
+        if (!modelCategoriesError && modelCategoriesData) {
+          setSelectedCategories(modelCategoriesData.map((mc: any) => mc.category_id));
+        }
+
+        // Fetch existing files
+        const existingFiles = await fetchModelFiles(modelId);
+        const mappedFiles: FileEntry[] = existingFiles.map((file: any) => ({
+          id: file.id,
+          name: file.file_name,
+          type: file.file_type,
+          description: file.description,
+          url: file.file_url,
+          size: file.file_size,
+          fileId: file.id,
+          filePath: file.file_path,
+        }));
+        setFiles(mappedFiles);
+      } catch (error: any) {
+        console.error('Error loading model:', error);
+        toast({
+          title: "Error loading model",
+          description: error.message,
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadModel();
+  }, [modelId]);
+
+  // Fetch categories from database
+  useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        setLoadingCategories(true);
+
+        const { data, error } = await supabase
+          .from('categories')
+          .select('id, name, is_custom')
+          .order('is_custom', { ascending: true })
+          .order('name', { ascending: true });
+
+        if (error) {
+          console.error('Error fetching categories:', error);
+          toast({
+            title: "Error loading categories",
+            description: "Could not load category list. Please try again.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        setCategories(data || []);
+      } catch (error) {
+        console.error('Error in fetchCategories:', error);
+      } finally {
+        setLoadingCategories(false);
+      }
+    };
+
+    fetchCategories();
+  }, [toast]);
+
+  // Create custom category handler
+  const handleCreateCustomCategory = async () => {
+    if (!newCategoryName.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Category name cannot be empty.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Check if category already exists
+    if (categories.some(cat => cat.name.toLowerCase() === newCategoryName.trim().toLowerCase())) {
+      toast({
+        title: "Category Exists",
+        description: "This category already exists.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setCreatingCategory(true);
+
+      const { data, error } = await supabase
+        .from('categories')
+        .insert({
+          name: newCategoryName.trim(),
+          is_custom: true,
+          created_by: user?.id,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating category:', error);
+        toast({
+          title: "Error Creating Category",
+          description: "Could not create category. Please try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Add to categories list
+      setCategories([...categories, data]);
+
+      // Auto-select the new category
+      setSelectedCategories([...selectedCategories, data.id]);
+
+      toast({
+        title: "Category Created",
+        description: `"${data.name}" has been added to your categories.`,
+      });
+
+      // Close dialog and reset
+      setNewCategoryDialogOpen(false);
+      setNewCategoryName("");
+    } catch (error) {
+      console.error('Error in handleCreateCustomCategory:', error);
+    } finally {
+      setCreatingCategory(false);
+    }
+  };
+
+  // Toggle category selection
+  const toggleCategorySelection = (categoryId: string) => {
+    setSelectedCategories(prev =>
+      prev.includes(categoryId)
+        ? prev.filter(id => id !== categoryId)
+        : [...prev, categoryId]
+    );
+  };
+
+  // Loading or not found states
+  if (loading) {
+    return (
+      <Layout type="dashboard">
+        <div className="flex flex-col items-center justify-center min-h-[400px]">
+          <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
+          <p className="text-muted-foreground">Loading model...</p>
+        </div>
+      </Layout>
+    );
+  }
+
   if (!model) {
     return (
       <Layout type="dashboard">
@@ -132,7 +321,7 @@ export default function EditModelPage() {
       modelName.length <= 25 &&
       shortDescription.trim().length > 0 &&
       shortDescription.length <= 700 &&
-      category.trim().length > 0 &&
+      selectedCategories.length > 0 &&
       version.trim().length > 0 &&
       priceType !== ""
     );
@@ -197,7 +386,7 @@ export default function EditModelPage() {
     if (step > 1) setStep(step - 1);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!isAllRequiredFieldsComplete()) {
       const missingFields = [];
       if (!isTab1Complete()) missingFields.push("General Info");
@@ -212,11 +401,117 @@ export default function EditModelPage() {
       return;
     }
 
-    toast({
-      title: "Model Updated Successfully",
-      description: "Your changes have been saved.",
-    });
-    setLocation("/publisher/my-models");
+    if (!user || !modelId) {
+      toast({
+        title: "Error",
+        description: "Authentication error. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Step 1: Update the model
+      const updates = {
+        name: modelName,
+        shortDescription: shortDescription,
+        detailedDescription: detailedDescription,
+        version: version,
+        features: features,
+        responseTime: parseFloat(responseTime),
+        accuracy: parseFloat(accuracy),
+        apiDocumentation: apiSpec || null,
+        apiSpecFormat: apiSpecFormat,
+        status: model.status,
+        subscriptionType: priceType,
+        priceAmount: priceType === 'paid' ? parseFloat(price) : null,
+      };
+
+      await updateModel(modelId, updates);
+
+      // Step 2: Update categories in junction table
+      // First, delete all existing category associations
+      const { error: deleteError } = await supabase
+        .from('model_categories')
+        .delete()
+        .eq('model_id', modelId);
+
+      if (deleteError) {
+        console.error('Error deleting old categories:', deleteError);
+      }
+
+      // Then, insert new category associations
+      if (selectedCategories.length > 0) {
+        const categoryInserts = selectedCategories.map(categoryId => ({
+          model_id: modelId,
+          category_id: categoryId,
+        }));
+
+        const { error: insertError } = await supabase
+          .from('model_categories')
+          .insert(categoryInserts);
+
+        if (insertError) {
+          console.error('Error inserting categories:', insertError);
+          toast({
+            title: "Warning",
+            description: "Model updated but categories could not be saved.",
+            variant: "destructive",
+          });
+        }
+      }
+
+      // Step 3: Upload any new files (those without fileId)
+      const newFiles = files.filter(f => !f.fileId);
+      for (let i = 0; i < newFiles.length; i++) {
+        const fileEntry = newFiles[i];
+        const fileIndex = files.indexOf(fileEntry);
+
+        if (fileEntry.type === 'upload' && fileEntry.file) {
+          // Upload file to storage
+          await uploadFileWithProgress(
+            fileEntry.file,
+            user.id,
+            modelId,
+            fileEntry.description,
+            (progress) => {
+              setFiles(prev => prev.map((f, idx) =>
+                idx === fileIndex ? { ...f, uploadProgress: progress, uploading: true } : f
+              ));
+            }
+          );
+
+          setFiles(prev => prev.map((f, idx) =>
+            idx === fileIndex ? { ...f, uploading: false, uploadProgress: 100 } : f
+          ));
+        } else if (fileEntry.type === 'url' && fileEntry.url) {
+          // Save external URL
+          await saveExternalUrl(
+            modelId,
+            fileEntry.name,
+            fileEntry.url,
+            fileEntry.description
+          );
+        }
+      }
+
+      toast({
+        title: "Model Updated Successfully",
+        description: "Your changes have been saved.",
+      });
+      setLocation("/publisher/my-models");
+    } catch (error: any) {
+      console.error('Error updating model:', error);
+      toast({
+        title: "Error Updating Model",
+        description: error.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Tab 2: Add feature handler
@@ -246,7 +541,27 @@ export default function EditModelPage() {
       return;
     }
 
-    if (fileType === 'url' && !fileUrl.trim()) {
+    if (fileType === 'upload') {
+      if (!selectedFile) {
+        toast({
+          title: "Validation Error",
+          description: "Please select a file to upload.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Validate file size
+      const validation = validateFile(selectedFile);
+      if (!validation.valid) {
+        toast({
+          title: "Validation Error",
+          description: validation.error,
+          variant: "destructive",
+        });
+        return;
+      }
+    } else if (fileType === 'url' && !fileUrl.trim()) {
       toast({
         title: "Validation Error",
         description: "External URL is required.",
@@ -261,6 +576,8 @@ export default function EditModelPage() {
       type: fileType,
       description: fileDescription,
       url: fileType === 'url' ? fileUrl : undefined,
+      file: fileType === 'upload' ? selectedFile! : undefined,
+      size: fileType === 'upload' ? selectedFile!.size : undefined,
     };
 
     setFiles([...files, newFile]);
@@ -269,10 +586,79 @@ export default function EditModelPage() {
     setFileName("");
     setFileUrl("");
     setFileDescription("");
+    setSelectedFile(null);
   };
 
-  const handleRemoveFile = (id: string) => {
+  const handleRemoveFile = async (id: string) => {
+    const file = files.find(f => f.id === id);
+    if (!file) return;
+
+    // If file is already in database, delete it from storage and database
+    if (file.fileId) {
+      try {
+        await deleteFile(file.fileId, file.filePath);
+        toast({
+          title: "File Deleted",
+          description: `${file.name} has been removed.`,
+        });
+      } catch (error: any) {
+        console.error('Error deleting file:', error);
+        toast({
+          title: "Error deleting file",
+          description: error.message,
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    // Remove from local state
     setFiles(files.filter(f => f.id !== id));
+  };
+
+  // Drag and drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const droppedFiles = e.dataTransfer.files;
+    if (droppedFiles && droppedFiles.length > 0) {
+      const file = droppedFiles[0];
+
+      // Validate file
+      const validation = validateFile(file);
+      if (!validation.valid) {
+        toast({
+          title: "Invalid File",
+          description: validation.error,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      setSelectedFile(file);
+      if (!fileName) {
+        setFileName(file.name);
+      }
+    }
   };
 
   // Tab 4: Add collaborator by email handler
@@ -442,20 +828,85 @@ export default function EditModelPage() {
                       </div>
 
                       <div className="space-y-2">
-                         <Label>Category <span className="text-destructive">*</span></Label>
-                         <Select value={category} onValueChange={setCategory}>
-                            <SelectTrigger>
-                               <SelectValue placeholder="Select category" />
-                            </SelectTrigger>
-                            <SelectContent>
-                               <SelectItem value="healthcare">Healthcare</SelectItem>
-                               <SelectItem value="finance">Finance</SelectItem>
-                               <SelectItem value="nlp">NLP</SelectItem>
-                               <SelectItem value="vision">Computer Vision</SelectItem>
-                               <SelectItem value="smart-city">Smart City</SelectItem>
-                               <SelectItem value="agriculture">Agriculture</SelectItem>
-                            </SelectContent>
-                         </Select>
+                         <Label>Categories <span className="text-destructive">*</span></Label>
+                         <Popover open={categoryPopoverOpen} onOpenChange={setCategoryPopoverOpen}>
+                           <PopoverTrigger asChild>
+                             <Button
+                               variant="outline"
+                               role="combobox"
+                               aria-expanded={categoryPopoverOpen}
+                               className="w-full justify-between"
+                               disabled={loadingCategories}
+                             >
+                               {loadingCategories ? (
+                                 "Loading categories..."
+                               ) : selectedCategories.length > 0 ? (
+                                 `${selectedCategories.length} selected`
+                               ) : (
+                                 "Select categories..."
+                               )}
+                               <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                             </Button>
+                           </PopoverTrigger>
+                           <PopoverContent className="w-full p-0">
+                             <Command>
+                               <CommandInput placeholder="Search categories..." />
+                               <CommandEmpty>No category found.</CommandEmpty>
+                               <CommandGroup className="max-h-64 overflow-auto">
+                                 {categories.map((category) => (
+                                   <CommandItem
+                                     key={category.id}
+                                     onSelect={() => toggleCategorySelection(category.id)}
+                                   >
+                                     <Check
+                                       className={cn(
+                                         "mr-2 h-4 w-4",
+                                         selectedCategories.includes(category.id)
+                                           ? "opacity-100"
+                                           : "opacity-0"
+                                       )}
+                                     />
+                                     {category.name}
+                                     {category.is_custom && (
+                                       <Badge variant="secondary" className="ml-2 text-xs">
+                                         Custom
+                                       </Badge>
+                                     )}
+                                   </CommandItem>
+                                 ))}
+                               </CommandGroup>
+                               <div className="border-t p-2">
+                                 <Button
+                                   variant="ghost"
+                                   className="w-full justify-start gap-2"
+                                   onClick={() => {
+                                     setCategoryPopoverOpen(false);
+                                     setNewCategoryDialogOpen(true);
+                                   }}
+                                 >
+                                   <Plus className="h-4 w-4" />
+                                   Add Custom Category
+                                 </Button>
+                               </div>
+                             </Command>
+                           </PopoverContent>
+                         </Popover>
+                         {selectedCategories.length > 0 && (
+                           <div className="flex flex-wrap gap-2 mt-2">
+                             {selectedCategories.map((categoryId) => {
+                               const category = categories.find(c => c.id === categoryId);
+                               return category ? (
+                                 <Badge key={categoryId} variant="secondary" className="gap-1">
+                                   {category.name}
+                                   <X
+                                     className="w-3 h-3 cursor-pointer hover:text-destructive"
+                                     onClick={() => toggleCategorySelection(categoryId)}
+                                   />
+                                 </Badge>
+                               ) : null;
+                             })}
+                           </div>
+                         )}
                       </div>
 
                       <div className="space-y-2">
@@ -605,9 +1056,10 @@ export default function EditModelPage() {
                           />
                         ) : (
                           <div className="border rounded-lg p-4 bg-secondary/20 min-h-[240px]">
-                            <pre className="font-mono text-xs whitespace-pre-wrap break-words">
-                              {apiSpec || "No content to preview"}
-                            </pre>
+                            <ApiSpecRenderer
+                              content={apiSpec}
+                              format={apiSpecFormat as "json" | "yaml" | "markdown" | "text"}
+                            />
                           </div>
                         )}
                     </div>
@@ -620,7 +1072,7 @@ export default function EditModelPage() {
                     <Alert className="bg-blue-50 border-blue-200">
                       <Info className="h-4 w-4 text-blue-600" />
                       <AlertDescription className="text-blue-800">
-                        Files under 100MB can be uploaded directly. Use external URLs for larger resources.
+                        Files under 50MB can be uploaded directly. Use external URLs for larger resources.
                       </AlertDescription>
                     </Alert>
 
@@ -645,19 +1097,63 @@ export default function EditModelPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="upload">Upload File (&lt; 100MB)</SelectItem>
-                              <SelectItem value="url">External URL (&gt; 100MB)</SelectItem>
+                              <SelectItem value="upload">Upload File (&lt; 50MB)</SelectItem>
+                              <SelectItem value="url">External URL (&gt; 50MB)</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                       </div>
 
                       {fileType === 'upload' ? (
-                        <div className="border-2 border-dashed border-border rounded-lg p-8 flex flex-col items-center justify-center text-center hover:bg-secondary/20 transition-colors cursor-pointer">
-                          <Upload className="w-8 h-8 text-muted-foreground mb-2" />
-                          <p className="text-sm text-muted-foreground">
-                            Drag and drop your file here, or click to browse
-                          </p>
+                        <div className="space-y-2">
+                          <input
+                            type="file"
+                            id="file-upload-edit"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                setSelectedFile(file);
+                                if (!fileName) {
+                                  setFileName(file.name);
+                                }
+                              }
+                            }}
+                          />
+                          <label
+                            htmlFor="file-upload-edit"
+                            className={cn(
+                              "border-2 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-center transition-all cursor-pointer block",
+                              isDragging
+                                ? "border-primary bg-primary/10 scale-105"
+                                : "border-border hover:bg-secondary/20"
+                            )}
+                            onDragEnter={handleDragEnter}
+                            onDragOver={handleDragOver}
+                            onDragLeave={handleDragLeave}
+                            onDrop={handleDrop}
+                          >
+                            <Upload className={cn(
+                              "w-8 h-8 mb-2 transition-colors",
+                              isDragging ? "text-primary" : "text-muted-foreground"
+                            )} />
+                            <p className={cn(
+                              "text-sm transition-colors",
+                              isDragging ? "text-primary font-medium" : "text-muted-foreground"
+                            )}>
+                              {isDragging
+                                ? "Drop file here..."
+                                : selectedFile
+                                ? selectedFile.name
+                                : "Drag & drop or click to browse (max 50MB)"
+                              }
+                            </p>
+                            {selectedFile && !isDragging && (
+                              <p className="text-xs text-primary mt-2">
+                                {formatFileSize(selectedFile.size)}
+                              </p>
+                            )}
+                          </label>
                         </div>
                       ) : (
                         <div className="space-y-2">
@@ -702,6 +1198,16 @@ export default function EditModelPage() {
                                   <Badge variant="outline" className="text-xs">
                                     {file.type === 'upload' ? 'Upload' : 'URL'}
                                   </Badge>
+                                  {file.size && (
+                                    <span className="text-xs text-muted-foreground">
+                                      ({formatFileSize(file.size)})
+                                    </span>
+                                  )}
+                                  {file.fileId && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      Saved
+                                    </Badge>
+                                  )}
                                 </div>
                                 {file.description && (
                                   <p className="text-sm text-muted-foreground mt-1 ml-6">
@@ -713,12 +1219,21 @@ export default function EditModelPage() {
                                     {file.url}
                                   </p>
                                 )}
+                                {file.uploading && file.uploadProgress !== undefined && (
+                                  <div className="mt-2 ml-6">
+                                    <Progress value={file.uploadProgress} className="h-2" />
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Uploading... {file.uploadProgress}%
+                                    </p>
+                                  </div>
+                                )}
                               </div>
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleRemoveFile(file.id)}
                                 className="text-destructive hover:text-destructive"
+                                disabled={file.uploading}
                               >
                                 <Trash2 className="w-4 h-4" />
                               </Button>
@@ -742,11 +1257,11 @@ export default function EditModelPage() {
                           {/* Current User */}
                           <div className="flex items-center gap-3 mb-3 pb-3 border-b">
                             <div className="w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold shrink-0">
-                              {getInitials(CURRENT_USER.name)}
+                              {userProfile?.name ? getInitials(userProfile.name) : 'U'}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{CURRENT_USER.name}</p>
-                              <p className="text-xs text-muted-foreground truncate">{CURRENT_USER.email}</p>
+                              <p className="text-sm font-medium truncate">{userProfile?.name || 'User'}</p>
+                              <p className="text-xs text-muted-foreground truncate">{userProfile?.email || 'user@example.com'}</p>
                               <p className="text-xs text-primary">Owner</p>
                             </div>
                           </div>
@@ -871,18 +1386,81 @@ export default function EditModelPage() {
 
         {/* Footer Actions */}
         <div className="flex justify-between">
-           <Button variant="outline" onClick={handleBack} disabled={step === 1}>
+           <Button variant="outline" onClick={handleBack} disabled={step === 1 || isSubmitting}>
               Back
            </Button>
            <Button
              onClick={handleNext}
              className="gap-2"
-             disabled={step === 4 && !isAllRequiredFieldsComplete()}
+             disabled={(step === 4 && !isAllRequiredFieldsComplete()) || isSubmitting}
            >
-              {step === 4 ? "Update Model" : "Next Step"}
-              {step !== 4 && <ArrowRight className="w-4 h-4" />}
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                <>
+                  {step === 4 ? "Update Model" : "Next Step"}
+                  {step !== 4 && <ArrowRight className="w-4 h-4" />}
+                </>
+              )}
            </Button>
         </div>
+
+        {/* Custom Category Dialog */}
+        <Dialog open={newCategoryDialogOpen} onOpenChange={setNewCategoryDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add Custom Category</DialogTitle>
+              <DialogDescription>
+                Create a new category for your AI model. This category will be available for future models as well.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="category-name">Category Name</Label>
+                <Input
+                  id="category-name"
+                  placeholder="e.g., Robotics, Edge Computing"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCreateCustomCategory();
+                    }
+                  }}
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setNewCategoryDialogOpen(false);
+                  setNewCategoryName("");
+                }}
+                disabled={creatingCategory}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleCreateCustomCategory}
+                disabled={creatingCategory || !newCategoryName.trim()}
+              >
+                {creatingCategory ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create Category"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
       </div>
     </Layout>

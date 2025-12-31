@@ -1,38 +1,117 @@
 import { Layout } from "@/components/layout/Layout";
 import { StatsCard } from "@/components/StatsCard";
-import { MOCK_SUBSCRIPTIONS, MOCK_MODELS, CURRENT_USER, RECENT_ACTIVITIES } from "@/lib/mock-data";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Store, ShoppingBag, Search, Package, CheckCircle, XCircle, Download, MessageSquare, ArrowRight, ChevronDown, ChevronUp, Activity } from "lucide-react";
+import { Store, ShoppingBag, Search, Package, CheckCircle, XCircle, Download, MessageSquare, ArrowRight, ChevronDown, ChevronUp, Activity, Star } from "lucide-react";
 import { ModelCard } from "@/components/ModelCard";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import { fetchUserActivities } from "@/lib/activity-logger";
 
 export default function BuyerDashboard() {
   const [showAllActivities, setShowAllActivities] = useState(false);
+  const { user } = useAuth();
 
-  const activeSubs = MOCK_SUBSCRIPTIONS.filter(s => s.buyerId === CURRENT_USER.id && s.status === 'active');
-  const pendingSubs = MOCK_SUBSCRIPTIONS.filter(s => s.buyerId === CURRENT_USER.id && s.status === 'pending');
+  const [activeSubs, setActiveSubs] = useState<any[]>([]);
+  const [subscribedModels, setSubscribedModels] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [recentActivities, setRecentActivities] = useState<any[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(true);
 
-  // Get full model details for subscriptions
-  const subscribedModels = activeSubs.map(sub => {
-    return MOCK_MODELS.find(m => m.id === sub.modelId);
-  }).filter(Boolean);
+  // Fetch subscriptions and models
+  useEffect(() => {
+    const loadData = async () => {
+      if (!user?.id) return;
 
-  // Determine how many activities to show
-  const activitiesToShow = showAllActivities ? RECENT_ACTIVITIES : RECENT_ACTIVITIES.slice(0, 5);
+      try {
+        setLoading(true);
+
+        // Fetch subscriptions with model details
+        const { data: subscriptions, error } = await supabase
+          .from('subscriptions')
+          .select(`
+            *,
+            models (
+              *,
+              profiles!models_publisher_id_fkey (
+                name,
+                email
+              )
+            )
+          `)
+          .eq('buyer_id', user.id);
+
+        if (error) throw error;
+
+        // Filter active subscriptions only
+        const active = subscriptions?.filter(s => s.status === 'active') || [];
+
+        setActiveSubs(active);
+
+        // Get full model details for active subscriptions
+        const models = active
+          .map(sub => sub.models)
+          .filter(Boolean);
+
+        setSubscribedModels(models);
+      } catch (error) {
+        console.error('Error loading dashboard data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [user]);
+
+  // Fetch recent activities
+  useEffect(() => {
+    const loadActivities = async () => {
+      if (!user?.id) return;
+
+      try {
+        setLoadingActivities(true);
+        const activities = await fetchUserActivities(user.id, 20); // Fetch last 20 activities
+
+        // Transform to match UI expectations
+        const transformedActivities = activities.map(activity => ({
+          id: activity.id,
+          type: activity.activityType,
+          description: activity.title,
+          modelName: activity.modelName || 'Unknown Model',
+          modelId: activity.modelId,
+          timestamp: activity.createdAt
+        }));
+
+        setRecentActivities(transformedActivities);
+      } catch (error) {
+        console.error('Error loading activities:', error);
+      } finally {
+        setLoadingActivities(false);
+      }
+    };
+
+    loadActivities();
+  }, [user]);
+
+  const activitiesToShow = showAllActivities ? recentActivities : recentActivities.slice(0, 5);
 
   // Get activity icon based on type
   const getActivityIcon = (type: string) => {
     switch (type) {
       case 'subscribed':
         return CheckCircle;
+      case 'unsubscribed':
       case 'cancelled':
         return XCircle;
       case 'downloaded':
         return Download;
       case 'commented':
         return MessageSquare;
+      case 'rated':
+        return Star;
       default:
         return CheckCircle;
     }
@@ -43,12 +122,15 @@ export default function BuyerDashboard() {
     switch (type) {
       case 'subscribed':
         return 'text-green-600 bg-green-100';
+      case 'unsubscribed':
       case 'cancelled':
         return 'text-red-600 bg-red-100';
       case 'downloaded':
         return 'text-blue-600 bg-blue-100';
       case 'commented':
         return 'text-purple-600 bg-purple-100';
+      case 'rated':
+        return 'text-yellow-600 bg-yellow-100';
       default:
         return 'text-gray-600 bg-gray-100';
     }
@@ -87,7 +169,7 @@ export default function BuyerDashboard() {
         <div className="grid gap-4 md:grid-cols-2">
            <StatsCard
              title="Available Models in Marketplace"
-             value={MOCK_MODELS.length}
+             value="-"
              icon={Store}
              description="models to explore"
            />
@@ -170,7 +252,7 @@ export default function BuyerDashboard() {
         {/* Recent Activity Section */}
         <div>
           <h2 className="text-xl font-bold mb-4">Recent Activity</h2>
-          {RECENT_ACTIVITIES.length === 0 ? (
+          {recentActivities.length === 0 ? (
             <Card>
               <CardContent className="p-12">
                 <div className="flex flex-col items-center justify-center text-center">
@@ -212,7 +294,7 @@ export default function BuyerDashboard() {
                 </div>
 
                 {/* Show More / Show Less Button */}
-                {RECENT_ACTIVITIES.length > 5 && (
+                {recentActivities.length > 5 && (
                   <div className="p-4 border-t border-border bg-secondary/20">
                     <Button
                       variant="ghost"
@@ -226,7 +308,7 @@ export default function BuyerDashboard() {
                         </>
                       ) : (
                         <>
-                          Show More ({RECENT_ACTIVITIES.length - 5} more)
+                          Show More ({recentActivities.length - 5} more)
                           <ChevronDown className="w-4 h-4" />
                         </>
                       )}

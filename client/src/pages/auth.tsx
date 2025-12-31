@@ -4,28 +4,38 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { Check } from "lucide-react";
 import generatedImage from '@assets/generated_images/mimos_ai_marketplace_hero_background.png';
-import { USERS } from "@/lib/mock-data";
+import { supabase } from "@/lib/supabase";
 
 export default function AuthPage() {
+  // Read query parameters to determine initial mode and tab
+  const urlParams = new URLSearchParams(window.location.search);
+  const mode = urlParams.get('mode');
+  const tab = urlParams.get('tab');
+
   const [loading, setLoading] = useState(false);
-  const [isRegistering, setIsRegistering] = useState(false);
+  const [isRegistering, setIsRegistering] = useState(mode === 'register');
+  const [activeTab, setActiveTab] = useState<string>(tab === 'publisher' ? 'publisher' : 'buyer');
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [sendingReset, setSendingReset] = useState(false);
 
-  const handleRegister = (e: React.FormEvent, role: 'buyer' | 'publisher') => {
+  const handleRegister = async (e: React.FormEvent, selectedRole: 'buyer' | 'publisher') => {
     e.preventDefault();
     setLoading(true);
 
     const formData = new FormData(e.target as HTMLFormElement);
-    const name = formData.get(role === 'buyer' ? 'name' : 'pub-name') as string;
-    const email = formData.get(role === 'buyer' ? 'email' : 'pub-email') as string;
-    const password = formData.get(role === 'buyer' ? 'password' : 'pub-password') as string;
-    const confirmPassword = formData.get(role === 'buyer' ? 'confirm-password' : 'pub-confirm-password') as string;
+    const name = formData.get(selectedRole === 'buyer' ? 'name' : 'pub-name') as string;
+    const email = formData.get(selectedRole === 'buyer' ? 'email' : 'pub-email') as string;
+    const password = formData.get(selectedRole === 'buyer' ? 'password' : 'pub-password') as string;
+    const confirmPassword = formData.get(selectedRole === 'buyer' ? 'confirm-password' : 'pub-confirm-password') as string;
 
     // Validate password match
     if (password !== confirmPassword) {
@@ -38,122 +48,346 @@ export default function AuthPage() {
       return;
     }
 
-    // Simulate API delay
-    setTimeout(() => {
-      // Check if user with this email already exists
-      const existingUser = USERS.find(u => u.email === email);
+    try {
+      // Step 1: Set registration flag to prevent AuthContext from auto-signing out during registration
+      localStorage.setItem('isRegistering', 'true');
+      localStorage.setItem('registrationStartTime', Date.now().toString());
 
-      if (existingUser) {
-        // Check if user already has this role
-        if (existingUser.roles.includes(role)) {
+      // Step 2: Verify that the role exists in the database BEFORE any user operations
+      // This prevents creating orphaned users if roles table is not set up
+      const { data: roleCheck, error: roleCheckError } = await supabase
+        .from('roles')
+        .select('id')
+        .eq('role_name', selectedRole)
+        .single();
+
+      if (roleCheckError || !roleCheck) {
+        localStorage.removeItem('isRegistering');
+        localStorage.removeItem('registrationStartTime');
+        toast({
+          title: "System Configuration Error",
+          description: `The ${selectedRole} role is not configured in the database. Please contact support.`,
+          variant: "destructive",
+        });
+        setLoading(false);
+        return;
+      }
+
+      // Step 3: Store current role in localStorage BEFORE sign in attempt
+      // This ensures AuthContext reads the correct role when onAuthStateChange fires
+      localStorage.setItem('currentRole', selectedRole);
+
+      // Step 3: First check if user already exists by trying to sign in
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (signInData?.user) {
+        // User exists - check if they already have this role (reuse roleCheck from above)
+        const { data: existingRole } = await supabase
+          .from('user_roles')
+          .select('id')
+          .eq('user_id', signInData.user.id)
+          .eq('role_id', roleCheck.id)
+          .single();
+
+        if (existingRole) {
+          // User already has this role - reject registration
+          localStorage.removeItem('currentRole');
+          localStorage.removeItem('isRegistering');
+          localStorage.removeItem('registrationStartTime');
+          await supabase.auth.signOut();
           setLoading(false);
           toast({
-            title: "Error",
-            description: `An account with this email already exists as ${role}.`,
+            title: "Account already exists",
+            description: `You already have a ${selectedRole} account. Please use the login form instead.`,
             variant: "destructive",
           });
           return;
         }
 
-        // Add new role to existing user
-        existingUser.roles.push(role);
-        localStorage.setItem('userId', existingUser.id);
-        localStorage.setItem('userRole', role);
+        // User exists but doesn't have this role - add it using atomic function
+        console.log('Existing user adding new role using atomic function');
 
-        toast({
-          title: "Role added successfully!",
-          description: `${role.charAt(0).toUpperCase() + role.slice(1)} role has been added to your account.`,
+        const { data: result, error: rpcError } = await supabase.rpc('create_user_with_role', {
+          p_user_id: signInData.user.id,
+          p_name: signInData.user.user_metadata?.full_name || signInData.user.email?.split('@')[0] || 'User',
+          p_email: signInData.user.email || '',
+          p_role_name: selectedRole
         });
-      } else {
-        // Create new user
-        const newUser = {
-          id: String(USERS.length + 1),
-          email,
-          name,
-          password,
-          roles: [role] as ('buyer' | 'publisher')[]
-        };
-        USERS.push(newUser);
 
-        localStorage.setItem('userId', newUser.id);
-        localStorage.setItem('userRole', role);
+        console.log('RPC result for existing user:', result);
+
+        if (rpcError) {
+          console.error('RPC error for existing user:', rpcError);
+          localStorage.removeItem('currentRole');
+          throw rpcError;
+        }
+
+        if (result && !result.success) {
+          console.error('Function returned error for existing user:', result);
+          localStorage.removeItem('currentRole');
+          throw new Error(result.error || 'Failed to add role to existing user');
+        }
+
+        // Role added successfully - localStorage already set, just redirect
+        localStorage.removeItem('isRegistering');
+        localStorage.removeItem('registrationStartTime');
+
+        setLoading(false);
+        toast({
+          title: "Role added!",
+          description: `${selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1)} access has been added to your account.`,
+        });
+        setLocation(selectedRole === 'publisher' ? '/publisher/dashboard' : '/buyer/dashboard');
+        return;
+      }
+
+      // Step 4: User doesn't exist in auth - proceed with sign up
+      // localStorage already set at the beginning of try block
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: name
+          }
+        }
+      });
+
+      if (error) {
+        localStorage.removeItem('currentRole');
+        throw error;
+      }
+
+      if (data.user) {
+        // Step 5: Use atomic function to create user and assign role
+        // This prevents foreign key constraint violations due to transaction timing
+        console.log('Creating user with role using atomic function');
+
+        const { data: result, error: rpcError } = await supabase.rpc('create_user_with_role', {
+          p_user_id: data.user.id,
+          p_name: name,
+          p_email: email,
+          p_role_name: selectedRole
+        });
+
+        console.log('RPC result:', result);
+
+        if (rpcError) {
+          console.error('RPC error:', rpcError);
+          localStorage.removeItem('currentRole');
+          throw rpcError;
+        }
+
+        // Check if the function returned an error
+        if (result && !result.success) {
+          console.error('Function returned error:', result);
+          localStorage.removeItem('currentRole');
+          throw new Error(result.error || 'Failed to create user with role');
+        }
+
+        console.log('User and role created successfully:', result);
+
+        // Clear registration flags on success
+        localStorage.removeItem('isRegistering');
+        localStorage.removeItem('registrationStartTime');
 
         toast({
           title: "Account created!",
           description: "Welcome to MIMOS AI Marketplace.",
         });
-      }
 
+        setLoading(false);
+        setLocation(selectedRole === 'publisher' ? '/publisher/dashboard' : '/buyer/dashboard');
+      }
+    } catch (error: any) {
       setLoading(false);
-      setLocation(role === 'publisher' ? '/publisher/dashboard' : '/buyer/dashboard');
-    }, 1000);
+      localStorage.removeItem('currentRole'); // Clean up on any error
+      localStorage.removeItem('isRegistering'); // Clean up registration flags
+      localStorage.removeItem('registrationStartTime');
+      console.error('Registration error:', error);
+
+      // Show detailed error information
+      const errorMessage = error.message || "An error occurred during registration.";
+      const errorDetails = error.details ? ` Details: ${error.details}` : '';
+      const errorHint = error.hint ? ` Hint: ${error.hint}` : '';
+      const errorCode = error.code ? ` Code: ${error.code}` : '';
+
+      // Alert to prevent page reload and see the full error
+      alert(`Registration failed!\n\nError: ${errorMessage}\n${errorDetails}${errorHint}${errorCode}\n\nCheck console for more details.`);
+
+      toast({
+        title: "Registration failed",
+        description: `${errorMessage}${errorDetails}${errorHint}`,
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleLogin = (e: React.FormEvent, role: 'buyer' | 'publisher') => {
+  const handleLogin = async (e: React.FormEvent, selectedRole: 'buyer' | 'publisher') => {
     e.preventDefault();
     setLoading(true);
 
     const formData = new FormData(e.target as HTMLFormElement);
-    const email = formData.get(role === 'buyer' ? 'email' : 'pub-email') as string;
-    const password = formData.get(role === 'buyer' ? 'password' : 'pub-password') as string;
+    const email = formData.get(selectedRole === 'buyer' ? 'email' : 'pub-email') as string;
+    const password = formData.get(selectedRole === 'buyer' ? 'password' : 'pub-password') as string;
 
-    // Simulate API delay
-    setTimeout(() => {
-      // Find user by email
-      const user = USERS.find(u => u.email === email);
+    try {
+      // Step 1: Set login flag to prevent race conditions with ProtectedRoute
+      localStorage.setItem('isLoggingIn', 'true');
+      localStorage.setItem('loginStartTime', Date.now().toString());
 
-      if (!user) {
+      // Step 2: Store current role in localStorage BEFORE sign in
+      // This ensures AuthContext reads the correct role when onAuthStateChange fires
+      localStorage.setItem('currentRole', selectedRole);
+
+      // Step 2: Sign in with email and password
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) {
+        // Clear localStorage if sign in fails
+        localStorage.removeItem('currentRole');
+        throw error;
+      }
+
+      // Step 3: Get role ID
+      const { data: role, error: roleError } = await supabase
+        .from('roles')
+        .select('id')
+        .eq('role_name', selectedRole)
+        .single();
+
+      if (roleError || !role) {
+        localStorage.removeItem('currentRole');
+        throw new Error('Role not found');
+      }
+
+      // Step 4: Check if user has the selected role
+      const { data: userRole } = await supabase
+        .from('user_roles')
+        .select('id')
+        .eq('user_id', data.user.id)
+        .eq('role_id', role.id)
+        .single();
+
+      if (!userRole) {
+        // User doesn't have this role - clean up and sign out
+        localStorage.removeItem('currentRole');
+        localStorage.removeItem('isLoggingIn');
+        localStorage.removeItem('loginStartTime');
+        await supabase.auth.signOut();
         setLoading(false);
         toast({
-          title: "Error",
-          description: "Invalid email or password.",
+          title: "Access denied",
+          description: `No ${selectedRole} account found for this email. Please check your account type or register.`,
           variant: "destructive",
         });
         return;
       }
 
-      // Validate password
-      if (user.password !== password) {
-        setLoading(false);
-        toast({
-          title: "Error",
-          description: "Invalid email or password.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Check if user has the selected role
-      if (!user.roles.includes(role)) {
-        setLoading(false);
-        toast({
-          title: "Error",
-          description: `You don't have ${role} access. Please check your account role or register as ${role}.`,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      // Store userId and userRole in localStorage
-      localStorage.setItem('userId', user.id);
-      localStorage.setItem('userRole', role);
+      // Clear login flags on success
+      localStorage.removeItem('isLoggingIn');
+      localStorage.removeItem('loginStartTime');
 
       setLoading(false);
       toast({
         title: "Welcome back!",
         description: "Successfully logged in.",
       });
-      setLocation(role === 'publisher' ? '/publisher/dashboard' : '/buyer/dashboard');
-    }, 1000);
+      setLocation(selectedRole === 'publisher' ? '/publisher/dashboard' : '/buyer/dashboard');
+    } catch (error: any) {
+      setLoading(false);
+      localStorage.removeItem('currentRole'); // Clean up on any error
+      localStorage.removeItem('isLoggingIn'); // Clean up login flags
+      localStorage.removeItem('loginStartTime');
+      console.error('Login error:', error);
+      toast({
+        title: "Login failed",
+        description: error.message || "Invalid email or password.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleGoogleLogin = async (selectedRole: 'buyer' | 'publisher') => {
+    try {
+      // Store role in localStorage BEFORE OAuth redirect
+      // This ensures when user returns from Google, the role is already set
+      localStorage.setItem('currentRole', selectedRole);
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback?role=${selectedRole}`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        },
+      });
+
+      if (error) {
+        localStorage.removeItem('currentRole');
+        throw error;
+      }
+    } catch (error: any) {
+      console.error('OAuth error:', error);
+      toast({
+        title: 'Authentication failed',
+        description: 'Unable to sign in with Google',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    if (!resetEmail) {
+      toast({
+        title: "Email required",
+        description: "Please enter your email address.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSendingReset(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Reset email sent!",
+        description: "Check your email for the password reset link.",
+      });
+      setShowForgotPassword(false);
+      setResetEmail('');
+    } catch (error: any) {
+      console.error('Password reset error:', error);
+      toast({
+        title: "Reset failed",
+        description: error.message || "Failed to send reset email. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setSendingReset(false);
+    }
   };
 
   return (
     <Layout type="public">
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-6 bg-secondary/20 relative">
          <div className="absolute inset-0 z-0 opacity-5 pointer-events-none">
-          <img 
+          <img
             src={generatedImage}
-            alt="" 
+            alt=""
             className="w-full h-full object-cover"
           />
         </div>
@@ -174,12 +408,12 @@ export default function AuthPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="buyer" className="w-full">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList className="grid w-full grid-cols-2 mb-6">
                 <TabsTrigger value="buyer">Buyer Portal</TabsTrigger>
                 <TabsTrigger value="publisher">Publisher Portal</TabsTrigger>
               </TabsList>
-              
+
               <TabsContent value="buyer">
                 <form onSubmit={(e) => isRegistering ? handleRegister(e, 'buyer') : handleLogin(e, 'buyer')} className="space-y-4">
                   {isRegistering && (
@@ -190,11 +424,22 @@ export default function AuthPage() {
                   )}
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" name="email" type="email" placeholder="name@company.com" required defaultValue={isRegistering ? "" : "buyer@example.com"} />
+                    <Input id="email" name="email" type="email" placeholder="name@company.com" required />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
-                    <Input id="password" name="password" type="password" required defaultValue={isRegistering ? "" : "password"} />
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="password">Password</Label>
+                      {!isRegistering && (
+                        <button
+                          type="button"
+                          onClick={() => setShowForgotPassword(true)}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          Forgot Password?
+                        </button>
+                      )}
+                    </div>
+                    <Input id="password" name="password" type="password" required />
                   </div>
                   {isRegistering && (
                     <div className="space-y-2">
@@ -222,7 +467,7 @@ export default function AuthPage() {
                   </div>
                 </form>
               </TabsContent>
-              
+
               <TabsContent value="publisher">
                 <form onSubmit={(e) => isRegistering ? handleRegister(e, 'publisher') : handleLogin(e, 'publisher')} className="space-y-4">
                    <div className="bg-primary/5 p-4 rounded-md border border-primary/20 mb-4">
@@ -244,11 +489,22 @@ export default function AuthPage() {
                   )}
                   <div className="space-y-2">
                     <Label htmlFor="pub-email">Institutional Email</Label>
-                    <Input id="pub-email" name="pub-email" type="email" placeholder="name@mimos.my" required defaultValue={isRegistering ? "" : "aminah@mimos.my"} />
+                    <Input id="pub-email" name="pub-email" type="email" placeholder="name@mimos.my" required />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="pub-password">Password</Label>
-                    <Input id="pub-password" name="pub-password" type="password" required defaultValue={isRegistering ? "" : "password"} />
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="pub-password">Password</Label>
+                      {!isRegistering && (
+                        <button
+                          type="button"
+                          onClick={() => setShowForgotPassword(true)}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          Forgot Password?
+                        </button>
+                      )}
+                    </div>
+                    <Input id="pub-password" name="pub-password" type="password" required />
                   </div>
                   {isRegistering && (
                     <div className="space-y-2">
@@ -277,7 +533,7 @@ export default function AuthPage() {
                 </form>
               </TabsContent>
             </Tabs>
-            
+
             <div className="relative my-6">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t" />
@@ -288,8 +544,8 @@ export default function AuthPage() {
                 </span>
               </div>
             </div>
-            
-            <Button variant="outline" className="w-full" type="button">
+
+            <Button variant="outline" className="w-full" type="button" onClick={() => handleGoogleLogin(activeTab as 'buyer' | 'publisher')}>
               <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
                 <path
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -311,11 +567,41 @@ export default function AuthPage() {
               Google
             </Button>
           </CardContent>
-          <CardFooter className="flex flex-col gap-2 text-center text-sm text-muted-foreground">
-             <a href="#" className="hover:text-primary underline">Forgot password?</a>
-          </CardFooter>
         </Card>
       </div>
+
+      {/* Forgot Password Dialog */}
+      <Dialog open={showForgotPassword} onOpenChange={setShowForgotPassword}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Enter your email address and we'll send you a link to reset your password.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="reset-email">Email</Label>
+              <Input
+                id="reset-email"
+                type="email"
+                placeholder="name@company.com"
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowForgotPassword(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleForgotPassword} disabled={sendingReset}>
+              {sendingReset ? "Sending..." : "Send Reset Link"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }

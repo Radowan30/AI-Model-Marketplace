@@ -3,11 +3,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { MOCK_MODELS, CURRENT_USER, MODEL_SUBSCRIBERS } from "@/lib/mock-data";
-import { Plus, Search, MoreHorizontal, Edit, Trash, Eye, Package, CheckCircle, Users } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { Plus, Search, MoreHorizontal, Edit, Trash, Eye, Package, CheckCircle, Users, Loader2 } from "lucide-react";
 import { StatsCard } from "@/components/StatsCard";
 import { Link, useLocation } from "wouter";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import { Model } from "@/lib/types";
+import { transformDatabaseModels } from "@/lib/data-transforms";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,7 +39,10 @@ import {
 import { useToast } from "@/hooks/use-toast";
 
 export default function MyModelsPage() {
-  const myModels = MOCK_MODELS.filter(m => m.publisherId === CURRENT_USER.id);
+  const { user } = useAuth();
+  const [myModels, setMyModels] = useState<Model[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [subscribers, setSubscribers] = useState<any[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -44,26 +50,97 @@ export default function MyModelsPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
 
+  // Fetch publisher's models
+  useEffect(() => {
+    const fetchModels = async () => {
+      if (!user) return;
+
+      try {
+        setLoading(true);
+        const { data, error } = await supabase
+          .from('models')
+          .select('*')
+          .eq('publisher_id', user.id)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setMyModels(transformDatabaseModels(data || []));
+      } catch (error: any) {
+        console.error('Error fetching models:', error);
+        toast({
+          title: "Error loading models",
+          description: error.message,
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchModels();
+  }, [user]);
+
+  // Fetch subscribers for publisher's models
+  useEffect(() => {
+    const fetchSubscribers = async () => {
+      if (!user || myModels.length === 0) {
+        setSubscribers([]);
+        return;
+      }
+
+      try {
+        const modelIds = myModels.map(m => m.id);
+
+        const { data, error } = await supabase
+          .from('subscriptions')
+          .select(`
+            id,
+            buyer_id,
+            model_id,
+            status,
+            profiles!subscriptions_buyer_id_fkey (
+              name,
+              email
+            )
+          `)
+          .in('model_id', modelIds)
+          .eq('status', 'active');
+
+        if (error) throw error;
+
+        setSubscribers(data || []);
+      } catch (error: any) {
+        console.error('Error fetching subscribers:', error);
+      }
+    };
+
+    fetchSubscribers();
+  }, [user, myModels]);
+
   // Calculate stats
   const totalModels = myModels.length;
   const publishedModels = myModels.filter(m => m.status === 'published').length;
 
   // Get unique subscribers (count each user once even if subscribed to multiple models)
-  const myModelNames = myModels.map(m => m.name);
-  const subscribersToMyModels = MODEL_SUBSCRIBERS.filter(sub =>
-    myModelNames.includes(sub.model)
-  );
-  const uniqueSubscribers = new Set(subscribersToMyModels.map(sub => sub.email)).size;
+  const uniqueSubscribers = new Set(subscribers.map(sub => sub.buyer_id)).size;
 
   // Filter models based on category and status
   const filteredModels = myModels.filter(model => {
-    const matchesCategory = categoryFilter === "all" || model.category === categoryFilter;
+    const matchesCategory = categoryFilter === "all" || model.categories.some(cat => cat.id === categoryFilter);
     const matchesStatus = statusFilter === "all" || model.status === statusFilter;
     return matchesCategory && matchesStatus;
   });
 
-  // Get unique categories from models
-  const categories = Array.from(new Set(myModels.map(m => m.category)));
+  // Get unique categories from all models
+  const categoriesMap = new Map();
+  myModels.forEach(model => {
+    model.categories.forEach(cat => {
+      if (!categoriesMap.has(cat.id)) {
+        categoriesMap.set(cat.id, cat);
+      }
+    });
+  });
+  const categories = Array.from(categoriesMap.values());
 
   // Action handlers
   const handleViewDetails = (modelId: string) => {
@@ -79,15 +156,34 @@ export default function MyModelsPage() {
     setDeleteDialogOpen(true);
   };
 
-  const handleDeleteConfirm = () => {
-    if (modelToDelete) {
-      // In a real app, this would call an API to delete the model
-      // For now, we'll just show a toast since we can't modify MOCK_MODELS
-      const model = MOCK_MODELS.find(m => m.id === modelToDelete);
+  const handleDeleteConfirm = async () => {
+    if (!modelToDelete) return;
+
+    try {
+      const model = myModels.find(m => m.id === modelToDelete);
+
+      const { error } = await supabase
+        .from('models')
+        .delete()
+        .eq('id', modelToDelete);
+
+      if (error) throw error;
+
+      // Remove from local state
+      setMyModels(prev => prev.filter(m => m.id !== modelToDelete));
+
       toast({
         title: "Model Deleted",
         description: `${model?.name} has been deleted successfully.`,
       });
+    } catch (error: any) {
+      console.error('Error deleting model:', error);
+      toast({
+        title: "Error deleting model",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
       setDeleteDialogOpen(false);
       setModelToDelete(null);
     }
@@ -135,21 +231,21 @@ export default function MyModelsPage() {
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input placeholder="Search models..." className="pl-9" />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Category" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Categories</SelectItem>
                 {categories.map(category => (
-                  <SelectItem key={category} value={category}>{category}</SelectItem>
+                  <SelectItem key={category.id} value={category.id}>{category.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
 
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[150px]">
+              <SelectTrigger className="w-full sm:w-[150px]">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
               <SelectContent>
@@ -162,14 +258,15 @@ export default function MyModelsPage() {
         </div>
 
         <div className="border border-border rounded-lg bg-card overflow-hidden">
-          <Table>
+          <div className="overflow-x-auto">
+            <Table className="min-w-[600px]">
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[300px]">Name</TableHead>
-                <TableHead>Version</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Price</TableHead>
-                <TableHead className="text-right">Stats</TableHead>
+                <TableHead className="min-w-[180px]">Name</TableHead>
+                <TableHead className="whitespace-nowrap">Version</TableHead>
+                <TableHead className="whitespace-nowrap">Status</TableHead>
+                <TableHead className="whitespace-nowrap">Price</TableHead>
+                <TableHead className="text-right whitespace-nowrap">Stats</TableHead>
                 <TableHead className="w-[50px]"></TableHead>
               </TableRow>
             </TableHeader>
@@ -193,7 +290,9 @@ export default function MyModelsPage() {
                     <TableCell>
                       <div className="flex flex-col">
                         <span className="font-medium">{model.name}</span>
-                        <span className="text-xs text-muted-foreground">{model.category}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {model.categories.map(cat => cat.name).join(', ')}
+                        </span>
                       </div>
                     </TableCell>
                     <TableCell>{model.version}</TableCell>
@@ -235,6 +334,7 @@ export default function MyModelsPage() {
               )}
             </TableBody>
           </Table>
+          </div>
         </div>
       </div>
 

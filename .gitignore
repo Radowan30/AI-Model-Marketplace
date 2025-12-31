@@ -46,3 +46,9 @@ nul
 
 # Vite
 vite.config.ts.*
+
+# claude-ai
+.claude
+
+# requirements file
+REQUIREMENTS.md

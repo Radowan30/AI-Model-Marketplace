@@ -7,12 +7,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Separator } from "@/components/ui/separator";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
-import { CURRENT_USER } from "@/lib/mock-data";
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { User, Building2 } from "lucide-react";
 
 export default function SettingsPage() {
   const { toast } = useToast();
+  const { userProfile, user } = useAuth();
 
   // Form state
   const [name, setName] = useState("");
@@ -30,19 +32,21 @@ export default function SettingsPage() {
 
   // Initialize form with current user data
   useEffect(() => {
-    const initialValues = {
-      name: CURRENT_USER.name,
-      email: CURRENT_USER.email,
-      company: CURRENT_USER.company || "",
-      bio: CURRENT_USER.bio || ""
-    };
+    if (userProfile) {
+      const initialValues = {
+        name: userProfile.name || "",
+        email: userProfile.email || "",
+        company: userProfile.company_name || "",
+        bio: userProfile.bio || ""
+      };
 
-    setName(initialValues.name);
-    setEmail(initialValues.email);
-    setCompany(initialValues.company);
-    setBio(initialValues.bio);
-    setOriginalValues(initialValues);
-  }, []);
+      setName(initialValues.name);
+      setEmail(initialValues.email);
+      setCompany(initialValues.company);
+      setBio(initialValues.bio);
+      setOriginalValues(initialValues);
+    }
+  }, [userProfile]);
 
   // Check if form has been modified
   const isDirty = () => {
@@ -54,23 +58,43 @@ export default function SettingsPage() {
     );
   };
 
-  const handleSave = () => {
-    // In a real app, this would be an API call
-    // For now, we'll update the CURRENT_USER object (note: this won't persist across refreshes)
-    // In a real implementation, you'd store in localStorage or make an API call
+  const handleSave = async () => {
+    if (!user) return;
 
-    toast({
-      title: "Settings Saved Successfully",
-      description: "Your profile has been updated.",
-    });
+    try {
+      // Update user profile in Supabase
+      const { error } = await supabase
+        .from('users')
+        .update({
+          name,
+          email,
+          company_name: company,
+          bio
+        })
+        .eq('id', user.id);
 
-    // Update original values to reflect the save
-    setOriginalValues({
-      name,
-      email,
-      company,
-      bio
-    });
+      if (error) throw error;
+
+      toast({
+        title: "Settings Saved Successfully",
+        description: "Your profile has been updated.",
+      });
+
+      // Update original values to reflect the save
+      setOriginalValues({
+        name,
+        email,
+        company,
+        bio
+      });
+    } catch (error: any) {
+      console.error('Error saving settings:', error);
+      toast({
+        title: "Error Saving Settings",
+        description: error.message || "Failed to update profile.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleCancel = () => {

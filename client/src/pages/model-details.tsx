@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout/Layout";
-import { MOCK_MODELS, MOCK_DISCUSSIONS, CURRENT_USER, MOCK_SUBSCRIPTIONS } from "@/lib/mock-data";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, CheckCircle, Clock, Download, MessageSquare, Shield, Star, Lock, Activity, FileText, Unlock, Eye, Users, TrendingUp, BarChart, Mail } from "lucide-react";
+import { ArrowLeft, CheckCircle, Clock, Download, MessageSquare, Shield, Star, Lock, Activity, FileText, Unlock, Eye, Users, TrendingUp, BarChart, Mail, ExternalLink, Loader2 } from "lucide-react";
 import { useRoute } from "wouter";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -20,14 +20,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { fetchModelFiles, checkFileAccess, downloadFile, formatFileSize } from "@/lib/file-upload";
+import { supabase } from "@/lib/supabase";
+import { logActivity } from "@/lib/activity-logger";
+import { ApiSpecRenderer } from "@/components/ApiSpecRenderer";
+import { fetchModelById } from "@/lib/api";
 
 export default function ModelDetailsPage() {
   const [match, params] = useRoute("/model/:id");
   const modelId = params?.id;
-  const model = MOCK_MODELS.find(m => m.id === modelId);
   const { toast } = useToast();
+  const { user, userProfile, currentRole } = useAuth();
 
-  const [subscriptionStatus, setSubscriptionStatus] = useState<'none' | 'active' | 'pending'>('none');
+  // Model state
+  const [model, setModel] = useState<any>(null);
+  const [loadingModel, setLoadingModel] = useState(true);
+
+  // Discussions state
+  const [discussions, setDiscussions] = useState<any[]>([]);
+  const [loadingDiscussions, setLoadingDiscussions] = useState(true);
+
+  const [subscriptionStatus, setSubscriptionStatus] = useState<'none' | 'active'>('none');
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [selectedRating, setSelectedRating] = useState(0);
   const [hoveredRating, setHoveredRating] = useState(0);
@@ -41,32 +54,306 @@ export default function ModelDetailsPage() {
   const [activeCommentForm, setActiveCommentForm] = useState<string | null>(null);
   const [commentContent, setCommentContent] = useState<{[key: string]: string}>({});
 
-  // Check subscription status from MOCK_SUBSCRIPTIONS
-  useEffect(() => {
-    if (model) {
-      const userSubscription = MOCK_SUBSCRIPTIONS.find(
-        sub => sub.modelId === model.id && sub.buyerId === CURRENT_USER.id
-      );
+  // Files state
+  const [modelFiles, setModelFiles] = useState<any[]>([]);
+  const [hasFileAccess, setHasFileAccess] = useState(false);
+  const [loadingFiles, setLoadingFiles] = useState(true);
+  const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
 
-      if (userSubscription) {
-        setSubscriptionStatus(userSubscription.status === 'active' ? 'active' : 'pending');
-      } else {
+  // Fetch model data
+  useEffect(() => {
+    const loadModel = async () => {
+      if (!modelId) return;
+
+      try {
+        setLoadingModel(true);
+        const modelData = await fetchModelById(modelId);
+        setModel(modelData);
+      } catch (error) {
+        console.error('Error loading model:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load model details.",
+          variant: "destructive"
+        });
+      } finally {
+        setLoadingModel(false);
+      }
+    };
+
+    loadModel();
+  }, [modelId, toast]);
+
+  // Check subscription status from database
+  useEffect(() => {
+    const checkSubscription = async () => {
+      if (!modelId || !user) {
+        setSubscriptionStatus('none');
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('subscriptions')
+          .select('status')
+          .eq('model_id', modelId)
+          .eq('buyer_id', user.id)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (data && data.status === 'active') {
+          setSubscriptionStatus('active');
+        } else {
+          setSubscriptionStatus('none');
+        }
+      } catch (error) {
+        console.error('Error checking subscription:', error);
         setSubscriptionStatus('none');
       }
-    }
-  }, [model]);
+    };
 
-  if (!model) return <div>Model not found</div>;
+    checkSubscription();
+  }, [modelId, user]);
 
-  const handleSubscribe = () => {
-    if (model.price === "free") {
-      // Free model - immediate subscription
-      setSubscriptionStatus('active');
+  // Check file access and load files based on subscription status
+  useEffect(() => {
+    const checkAccessAndLoadFiles = async () => {
+      // Wait for model to load
+      if (!modelId || !model) {
+        setLoadingFiles(false);
+        return;
+      }
+
+      setLoadingFiles(true);
+
+      // CRITICAL ACCESS CONTROL:
+      // File access is ONLY granted to buyers with active subscriptions
+      // Publishers should NOT have access on the public model details page
+
+      if (!user) {
+        // Not logged in = no access
+        setHasFileAccess(false);
+        setModelFiles([]);
+        setLoadingFiles(false);
+        return;
+      }
+
+      // Check if current user is the publisher of THIS specific model
+      const isModelPublisher = model.publisherId === user.id;
+
+      if (isModelPublisher) {
+        // Publisher of this model = no access on public view
+        setHasFileAccess(false);
+        setModelFiles([]);
+        setLoadingFiles(false);
+        return;
+      }
+
+      // For non-publishers (buyers), use subscriptionStatus state
+      // subscriptionStatus is already fetched by the subscription check useEffect
+      const hasActiveSubscription = subscriptionStatus === 'active';
+      setHasFileAccess(hasActiveSubscription);
+
+      // Fetch files only if user has access
+      if (hasActiveSubscription) {
+        try {
+          const files = await fetchModelFiles(modelId);
+          setModelFiles(files);
+        } catch (fileError: any) {
+          console.error('Error loading files:', fileError);
+          // Don't revoke access if file fetch fails, but clear files
+          setModelFiles([]);
+          toast({
+            title: "Error loading file list",
+            description: "Could not load files, but you have access.",
+            variant: "destructive",
+          });
+        }
+      } else {
+        // No access = clear files
+        setModelFiles([]);
+      }
+
+      setLoadingFiles(false);
+    };
+
+    checkAccessAndLoadFiles();
+  }, [modelId, user, model, subscriptionStatus]);
+
+  // Track page view
+  useEffect(() => {
+    const trackView = async () => {
+      if (!modelId) return;
+
+      try {
+        // Check if already viewed in this session
+        const viewedModels = JSON.parse(sessionStorage.getItem('viewedModels') || '[]');
+
+        if (viewedModels.includes(modelId)) {
+          // Already viewed in this session, skip tracking
+          return;
+        }
+
+        // Track view in database
+        const { error: viewError } = await supabase
+          .from('views')
+          .insert({
+            model_id: modelId,
+            user_id: user?.id || null,
+            timestamp: new Date().toISOString()
+          });
+
+        if (viewError) {
+          console.error('Error tracking view:', viewError);
+          // Don't show error to user, just log it
+          return;
+        }
+
+        // Increment view count on model (using RPC function to avoid race conditions)
+        const { error: updateError } = await supabase.rpc('increment_model_views', {
+          model_id: modelId
+        });
+
+        if (updateError) {
+          console.error('Error incrementing view count:', updateError);
+        }
+
+        // Mark as viewed in session
+        viewedModels.push(modelId);
+        sessionStorage.setItem('viewedModels', JSON.stringify(viewedModels));
+      } catch (error) {
+        console.error('Error in view tracking:', error);
+      }
+    };
+
+    trackView();
+  }, [modelId, user]);
+
+  // Fetch discussions
+  useEffect(() => {
+    const loadDiscussions = async () => {
+      if (!modelId) return;
+
+      try {
+        setLoadingDiscussions(true);
+        const { data, error } = await supabase
+          .from('discussions')
+          .select(`
+            *,
+            profiles!discussions_user_id_fkey (
+              name
+            ),
+            discussion_replies (
+              id,
+              content,
+              created_at,
+              user_id,
+              profiles!discussion_replies_user_id_fkey (
+                name
+              )
+            )
+          `)
+          .eq('model_id', modelId)
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        // Transform to expected format
+        const transformedDiscussions = data?.map(disc => ({
+          id: disc.id,
+          modelId: disc.model_id,
+          userId: disc.user_id,
+          userName: disc.profiles?.name || 'Unknown User',
+          content: disc.content,
+          date: new Date(disc.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+          replies: disc.discussion_replies?.map((reply: any) => ({
+            id: reply.id,
+            modelId: modelId,
+            userId: reply.user_id,
+            userName: reply.profiles?.name || 'Unknown User',
+            content: reply.content,
+            date: new Date(reply.created_at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+          })) || []
+        })) || [];
+
+        setDiscussions(transformedDiscussions);
+      } catch (error) {
+        console.error('Error loading discussions:', error);
+      } finally {
+        setLoadingDiscussions(false);
+      }
+    };
+
+    loadDiscussions();
+  }, [modelId]);
+
+  if (!model) return <div className="p-8 text-center">
+    {loadingModel ? 'Loading...' : 'Model not found'}
+  </div>;
+
+  const handleSubscribe = async () => {
+    if (!user) {
       toast({
-        title: `Successfully subscribed to ${model.name}!`,
-        description: "You now have access to model files and documentation.",
+        title: "Authentication Required",
+        description: "Please log in to subscribe.",
+        variant: "destructive",
       });
-      // In a real app, this would add to MOCK_SUBSCRIPTIONS via API
+      return;
+    }
+
+    if (model.price === "free") {
+      try {
+        // Create subscription in database
+        const { error } = await supabase
+          .from('subscriptions')
+          .insert({
+            buyer_id: user.id,
+            model_id: modelId,
+            status: 'active',
+            approved_at: new Date().toISOString()
+          });
+
+        if (error) {
+          // Check if already subscribed
+          if (error.code === '23505') {
+            toast({
+              title: "Already Subscribed",
+              description: "You are already subscribed to this model.",
+              variant: "default",
+            });
+            // Update subscription status - file access useEffect will handle the rest
+            setSubscriptionStatus('active');
+            return;
+          }
+          throw error;
+        }
+
+        // Update local state - file access useEffect will handle the rest
+        setSubscriptionStatus('active');
+
+        // Log activity
+        await logActivity({
+          userId: user.id,
+          activityType: 'subscribed',
+          title: `Subscribed to ${model.name}`,
+          description: 'Free subscription',
+          modelId: modelId,
+          modelName: model.name
+        });
+
+        toast({
+          title: `Successfully subscribed to ${model.name}!`,
+          description: "You now have access to model files and documentation.",
+        });
+      } catch (error) {
+        console.error('Error subscribing:', error);
+        toast({
+          title: "Subscription Failed",
+          description: "Failed to create subscription. Please try again.",
+          variant: "destructive",
+        });
+      }
     } else {
       // Paid model - show unavailable message
       toast({
@@ -77,24 +364,215 @@ export default function ModelDetailsPage() {
     }
   };
 
-  const isPublisher = CURRENT_USER.role === 'publisher';
+  const handleUnsubscribe = async () => {
+    if (!user || !modelId) return;
+
+    try {
+      // Find the subscription
+      const { data: subscription, error: findError } = await supabase
+        .from('subscriptions')
+        .select('id')
+        .eq('model_id', modelId)
+        .eq('buyer_id', user.id)
+        .eq('status', 'active')
+        .maybeSingle();
+
+      if (findError) throw findError;
+
+      if (!subscription) {
+        toast({
+          title: "Not Subscribed",
+          description: "You are not currently subscribed to this model.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      // Cancel the subscription
+      const { error: cancelError } = await supabase
+        .from('subscriptions')
+        .update({
+          status: 'cancelled',
+          cancelled_at: new Date().toISOString(),
+        })
+        .eq('id', subscription.id);
+
+      if (cancelError) throw cancelError;
+
+      // Update local state - file access useEffect will handle the rest
+      setSubscriptionStatus('none');
+
+      // Log activity
+      await logActivity({
+        userId: user.id,
+        activityType: 'unsubscribed',
+        title: `Unsubscribed from ${model.name}`,
+        description: 'Cancelled subscription',
+        modelId: modelId,
+        modelName: model.name
+      });
+
+      toast({
+        title: "Successfully Unsubscribed",
+        description: `You have unsubscribed from ${model.name}.`,
+      });
+    } catch (error) {
+      console.error('Error unsubscribing:', error);
+      toast({
+        title: "Unsubscribe Failed",
+        description: "Failed to cancel subscription. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const isPublisher = currentRole === 'publisher';
 
   const handleBack = () => {
     window.history.back();
   };
 
-  const handleRatingSubmit = () => {
-    if (selectedRating > 0) {
+  const handleDownloadFile = async (file: any) => {
+    if (!modelId || !user) return;
+
+    try {
+      setDownloadingFileId(file.id);
+
+      // Download file with signed URL
+      await downloadFile(file.id, file.file_path, file.file_name, modelId, user?.id || null);
+
+      // Log download activity
+      await logActivity({
+        userId: user.id,
+        activityType: 'downloaded',
+        title: `Downloaded file from ${model.name}`,
+        description: `File: ${file.file_name}`,
+        modelId: modelId,
+        modelName: model.name,
+        metadata: {
+          fileName: file.file_name,
+          fileSize: file.file_size,
+          fileType: 'upload'
+        }
+      });
+
+      toast({
+        title: "Download Started",
+        description: `Downloading ${file.file_name}...`,
+      });
+    } catch (error: any) {
+      console.error('Error downloading file:', error);
+      toast({
+        title: "Download Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingFileId(null);
+    }
+  };
+
+  const handleRatingSubmit = async () => {
+    if (selectedRating === 0) {
+      toast({
+        title: "Select a Rating",
+        description: "Please select a rating before submitting.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!user) {
+      toast({
+        title: "Authentication Required",
+        description: "Please log in to rate models.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Store old rating for comparison
+      const oldAverageRating = model.average_rating || 0;
+
+      // Upsert rating (insert or update if exists)
+      const { error: ratingError } = await supabase
+        .from('ratings')
+        .upsert({
+          model_id: modelId,
+          user_id: user.id,
+          rating_value: selectedRating,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'model_id,user_id'
+        });
+
+      if (ratingError) throw ratingError;
+
+      // Fetch all ratings for this model to recalculate average
+      const { data: allRatings, error: fetchError } = await supabase
+        .from('ratings')
+        .select('rating_value')
+        .eq('model_id', modelId);
+
+      if (fetchError) throw fetchError;
+
+      // Calculate new average
+      const totalRatings = allRatings?.length || 0;
+      const sumRatings = allRatings?.reduce((sum, r) => sum + r.rating_value, 0) || 0;
+      const newAverageRating = totalRatings > 0 ? sumRatings / totalRatings : 0;
+
+      // Update model with new average rating
+      const { error: updateError } = await supabase
+        .from('models')
+        .update({
+          average_rating: newAverageRating,
+          total_rating_count: totalRatings
+        })
+        .eq('id', modelId);
+
+      if (updateError) throw updateError;
+
+      // Update local model state
+      setModel((prev: any) => ({
+        ...prev,
+        average_rating: newAverageRating,
+        total_rating_count: totalRatings
+      }));
+
+      // Log activity
+      await logActivity({
+        userId: user.id,
+        activityType: 'rated',
+        title: `Rated ${model.name}`,
+        description: `Gave ${selectedRating} star${selectedRating !== 1 ? 's' : ''}`,
+        modelId: modelId,
+        modelName: model.name,
+        metadata: {
+          rating: selectedRating,
+          oldAverage: oldAverageRating,
+          newAverage: newAverageRating
+        }
+      });
+
       toast({
         title: "Rating Submitted",
         description: `You rated this model ${selectedRating} out of 5 stars.`,
       });
+
       setShowRatingModal(false);
-      // In a real app, this would send the rating to the backend
+      setSelectedRating(0);
+    } catch (error) {
+      console.error('Error submitting rating:', error);
+      toast({
+        title: "Rating Failed",
+        description: "Failed to submit rating. Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
-  const handleCreateDiscussion = () => {
+  const handleCreateDiscussion = async () => {
     if (!discussionTitle.trim() || !discussionContent.trim()) {
       toast({
         title: "Missing Information",
@@ -122,31 +600,64 @@ export default function ModelDetailsPage() {
       return;
     }
 
-    // Create new discussion (in real app, this would be API call)
-    const newDiscussion = {
-      id: `d${Date.now()}`,
-      modelId: model.id,
-      userId: CURRENT_USER.id,
-      userName: CURRENT_USER.name,
-      content: `**${discussionTitle}**\n\n${discussionContent}`,
-      date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
-      replies: [],
-    };
+    try {
+      // Insert into database
+      const { data, error } = await supabase
+        .from('discussions')
+        .insert({
+          model_id: modelId,
+          user_id: user?.id,
+          content: `**${discussionTitle}**\n\n${discussionContent}`
+        })
+        .select()
+        .single();
 
-    // Add to mock data (in real app, would update via API)
-    MOCK_DISCUSSIONS.push(newDiscussion);
+      if (error) throw error;
 
-    toast({
-      title: "Discussion Created",
-      description: "Your discussion has been posted.",
-    });
+      // Add to local state
+      const newDiscussion = {
+        id: data.id,
+        modelId: modelId,
+        userId: user?.id || '',
+        userName: userProfile?.name || 'User',
+        content: `**${discussionTitle}**\n\n${discussionContent}`,
+        date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+        replies: [],
+      };
 
-    setShowDiscussionModal(false);
-    setDiscussionTitle("");
-    setDiscussionContent("");
+      setDiscussions(prev => [newDiscussion, ...prev]);
+
+      // Log activity
+      if (user) {
+        await logActivity({
+          userId: user.id,
+          activityType: 'commented',
+          title: `Posted discussion on ${model.name}`,
+          description: discussionTitle,
+          modelId: modelId,
+          modelName: model.name
+        });
+      }
+
+      toast({
+        title: "Discussion Created",
+        description: "Your discussion has been posted.",
+      });
+
+      setShowDiscussionModal(false);
+      setDiscussionTitle("");
+      setDiscussionContent("");
+    } catch (error) {
+      console.error('Error creating discussion:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create discussion.",
+        variant: "destructive",
+      });
+    }
   };
 
-  const handleAddComment = (discussionId: string) => {
+  const handleAddComment = async (discussionId: string) => {
     const content = commentContent[discussionId]?.trim();
 
     if (!content) {
@@ -167,33 +678,69 @@ export default function ModelDetailsPage() {
       return;
     }
 
-    // Create new comment (in real app, this would be API call)
-    const newComment = {
-      id: `r${Date.now()}`,
-      modelId: model.id,
-      userId: CURRENT_USER.id,
-      userName: CURRENT_USER.name,
-      content: content,
-      date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
-    };
+    try {
+      // Insert reply into database
+      const { data, error } = await supabase
+        .from('discussion_replies')
+        .insert({
+          discussion_id: discussionId,
+          user_id: user?.id,
+          content: content
+        })
+        .select()
+        .single();
 
-    // Add to discussion replies (in real app, would update via API)
-    const discussion = MOCK_DISCUSSIONS.find(d => d.id === discussionId);
-    if (discussion) {
-      if (!discussion.replies) {
-        discussion.replies = [];
+      if (error) throw error;
+
+      // Create new comment for local state
+      const newComment = {
+        id: data.id,
+        modelId: modelId,
+        userId: user?.id || '',
+        userName: userProfile?.name || 'User',
+        content: content,
+        date: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+      };
+
+      // Update local state
+      setDiscussions(prev => prev.map(disc => {
+        if (disc.id === discussionId) {
+          return {
+            ...disc,
+            replies: [...(disc.replies || []), newComment]
+          };
+        }
+        return disc;
+      }));
+
+      // Log activity
+      if (user) {
+        await logActivity({
+          userId: user.id,
+          activityType: 'commented',
+          title: `Replied to discussion on ${model.name}`,
+          description: content.substring(0, 100),
+          modelId: modelId,
+          modelName: model.name
+        });
       }
-      discussion.replies.push(newComment);
+
+      toast({
+        title: "Comment Added",
+        description: "Your comment has been posted.",
+      });
+
+      // Clear comment form
+      setCommentContent(prev => ({ ...prev, [discussionId]: "" }));
+      setActiveCommentForm(null);
+    } catch (error) {
+      console.error('Error adding comment:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add comment.",
+        variant: "destructive",
+      });
     }
-
-    toast({
-      title: "Comment Added",
-      description: "Your comment has been posted.",
-    });
-
-    // Clear comment form
-    setCommentContent(prev => ({ ...prev, [discussionId]: "" }));
-    setActiveCommentForm(null);
   };
 
   return (
@@ -206,13 +753,15 @@ export default function ModelDetailsPage() {
           {/* Header */}
           <div className="flex flex-col md:flex-row gap-8 items-start justify-between">
              <div className="flex-1 space-y-4">
-                <div className="flex items-center gap-3">
-                   <Badge>{model.category}</Badge>
+                <div className="flex items-center gap-3 flex-wrap">
+                   {model.categories.map((category) => (
+                     <Badge key={category.id}>{category.name}</Badge>
+                   ))}
                    <span className="text-sm text-muted-foreground">Updated {model.updatedAt}</span>
                 </div>
                 <h1 className="text-4xl font-heading font-bold">{model.name}</h1>
                 <p className="text-lg text-muted-foreground leading-relaxed">
-                   {model.description}
+                   {model.shortDescription}
                 </p>
                 <div className="flex items-center gap-4 pt-2">
                    <div className="flex items-center gap-2">
@@ -259,15 +808,21 @@ export default function ModelDetailsPage() {
                          </p>
                       </div>
                    ) : subscriptionStatus === 'active' ? (
-                      <Button disabled className="w-full gap-2 bg-green-600 hover:bg-green-700 text-white">
-                         <CheckCircle className="w-4 h-4" />
-                         {model.price === 'free' ? 'Subscribed' : `Subscribed (MYR ${model.priceAmount?.toFixed(2)}/month)`}
-                      </Button>
-                   ) : subscriptionStatus === 'pending' ? (
-                      <Button disabled className="w-full gap-2 bg-orange-500 hover:bg-orange-600 text-white">
-                         <Clock className="w-4 h-4" />
-                         Pending Approval...
-                      </Button>
+                      <div className="space-y-2">
+                         <div className="flex items-center justify-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                            <span className="text-sm font-medium text-green-700">
+                               {model.price === 'free' ? 'Active Subscription' : `Active (MYR ${model.priceAmount?.toFixed(2)}/month)`}
+                            </span>
+                         </div>
+                         <Button
+                            variant="outline"
+                            className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                            onClick={handleUnsubscribe}
+                         >
+                            Unsubscribe
+                         </Button>
+                      </div>
                    ) : (
                       <>
                          <Button className="w-full shadow-md" onClick={handleSubscribe}>
@@ -285,7 +840,7 @@ export default function ModelDetailsPage() {
           </div>
 
           {/* Stats Bar */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-6 bg-card border border-border rounded-xl shadow-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4 p-4 sm:p-6 bg-card border border-border rounded-xl shadow-sm">
              <div className="flex items-center gap-3">
                 <div className="p-2 bg-blue-100 rounded-lg">
                    <Activity className="w-5 h-5 text-blue-600" />
@@ -327,23 +882,25 @@ export default function ModelDetailsPage() {
 
           {/* Content Tabs */}
           <Tabs defaultValue="overview" className="w-full">
-             <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent gap-6">
-                <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-4 py-3">
-                   Overview
-                </TabsTrigger>
-                <TabsTrigger value="docs" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-4 py-3">
-                   Docs
-                </TabsTrigger>
-                <TabsTrigger value="files" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-4 py-3">
-                   Files
-                </TabsTrigger>
-                <TabsTrigger value="discussion" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-4 py-3">
-                   Discussion
-                </TabsTrigger>
-                <TabsTrigger value="stats" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-4 py-3">
-                   Stats
-                </TabsTrigger>
-             </TabsList>
+             <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+               <TabsList className="w-full justify-start border-b rounded-none h-auto p-0 bg-transparent gap-1 sm:gap-3 md:gap-6">
+                  <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-2 sm:px-3 md:px-4 py-3 whitespace-nowrap text-sm sm:text-base">
+                     Overview
+                  </TabsTrigger>
+                  <TabsTrigger value="docs" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-2 sm:px-3 md:px-4 py-3 whitespace-nowrap text-sm sm:text-base">
+                     Docs
+                  </TabsTrigger>
+                  <TabsTrigger value="files" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-2 sm:px-3 md:px-4 py-3 whitespace-nowrap text-sm sm:text-base">
+                     Files
+                  </TabsTrigger>
+                  <TabsTrigger value="discussion" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-2 sm:px-3 md:px-4 py-3 whitespace-nowrap text-sm sm:text-base">
+                     Discussion
+                  </TabsTrigger>
+                  <TabsTrigger value="stats" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:shadow-none px-2 sm:px-3 md:px-4 py-3 whitespace-nowrap text-sm sm:text-base">
+                     Stats
+                  </TabsTrigger>
+               </TabsList>
+             </div>
 
              <TabsContent value="overview" className="py-6 space-y-6">
                 <div>
@@ -358,38 +915,31 @@ export default function ModelDetailsPage() {
                    </ul>
                 </div>
                 <div>
-                   <h3 className="text-xl font-bold mb-4">Technical Documentation</h3>
-                   <div className="prose max-w-none text-muted-foreground text-sm">
-                      <p>
-                         This model is built using the latest transformer architecture optimized for Malaysian contexts. 
-                         It accepts JSON payloads via REST API and returns confidence scores along with predictions.
-                      </p>
-                      <pre className="bg-secondary p-4 rounded-lg overflow-x-auto mt-4">
-                         <code>
-{`// Sample API Request
-POST /api/v1/predict
-{
-  "input": "Sample text for analysis",
-  "threshold": 0.85
-}`}
-                         </code>
-                      </pre>
-                   </div>
+                   <h3 className="text-xl font-bold mb-4">Detailed Description</h3>
+                   {model.detailedDescription ? (
+                     <div className="prose max-w-none text-muted-foreground text-sm whitespace-pre-wrap">
+                        {model.detailedDescription}
+                     </div>
+                   ) : (
+                     <p className="text-muted-foreground text-sm italic">
+                        No detailed description provided.
+                     </p>
+                   )}
                 </div>
 
                 {/* Model Details Section */}
                 <div>
                    <h3 className="text-xl font-bold mb-4">Model Details</h3>
                    <div className="space-y-3 text-sm">
-                      <div className="flex gap-2">
-                         <span className="text-muted-foreground min-w-32">Creator:</span>
-                         <a href={`mailto:${model.publisherEmail}`} className="text-primary hover:underline">
+                      <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
+                         <span className="text-muted-foreground font-medium sm:min-w-32 shrink-0">Creator:</span>
+                         <a href={`mailto:${model.publisherEmail}`} className="text-primary hover:underline break-words">
                             {model.publisherName}
                          </a>
                       </div>
-                      <div className="flex gap-2">
-                         <span className="text-muted-foreground min-w-32">Collaborators:</span>
-                         <div>
+                      <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
+                         <span className="text-muted-foreground font-medium sm:min-w-32 shrink-0">Collaborators:</span>
+                         <div className="break-words">
                             {model.collaborators && model.collaborators.length > 0 ? (
                                model.collaborators.map((collab, i) => (
                                   <span key={i}>
@@ -404,13 +954,13 @@ POST /api/v1/predict
                             )}
                          </div>
                       </div>
-                      <div className="flex gap-2">
-                         <span className="text-muted-foreground min-w-32">Published On:</span>
-                         <span>{new Date(model.publishedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                      <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
+                         <span className="text-muted-foreground font-medium sm:min-w-32 shrink-0">Published On:</span>
+                         <span className="break-words">{new Date(model.publishedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                       </div>
-                      <div className="flex gap-2">
-                         <span className="text-muted-foreground min-w-32">Last Update:</span>
-                         <span>{new Date(model.updatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                      <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
+                         <span className="text-muted-foreground font-medium sm:min-w-32 shrink-0">Last Update:</span>
+                         <span className="break-words">{new Date(model.updatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                       </div>
                    </div>
                 </div>
@@ -470,11 +1020,20 @@ POST /api/v1/predict
                 <div className="space-y-4">
                    <h3 className="text-xl font-bold">API Documentation</h3>
                    {model.apiDocumentation ? (
-                      <div className="bg-secondary/20 p-6 rounded-lg border border-border">
-                         <pre className="text-sm overflow-x-auto whitespace-pre-wrap font-mono">
-                            {model.apiDocumentation}
-                         </pre>
-                      </div>
+                      <>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-sm text-muted-foreground">Format:</span>
+                          <Badge variant="outline" className="uppercase text-xs">
+                            {model.apiSpecFormat || 'text'}
+                          </Badge>
+                        </div>
+                        <div className="bg-secondary/20 p-6 rounded-lg border border-border">
+                           <ApiSpecRenderer
+                             content={model.apiDocumentation}
+                             format={(model.apiSpecFormat as "json" | "yaml" | "markdown" | "text") || "text"}
+                           />
+                        </div>
+                      </>
                    ) : (
                       <div className="flex flex-col items-center justify-center py-12 bg-secondary/20 rounded-lg border border-dashed border-border">
                          <FileText className="w-12 h-12 text-muted-foreground mb-4" />
@@ -487,54 +1046,97 @@ POST /api/v1/predict
 
              <TabsContent value="files" className="py-6">
                 <div className="space-y-4">
-                   {isPublisher ? (
-                      <div className="flex flex-col items-center justify-center py-12 bg-secondary/20 rounded-lg border border-dashed border-border">
-                         <Lock className="w-12 h-12 text-muted-foreground mb-4" />
-                         <h3 className="text-lg font-bold">Preview Mode</h3>
-                         <p className="text-muted-foreground mb-4">File downloads are only available for buyers.</p>
+                   {loadingFiles ? (
+                      <div className="flex flex-col items-center justify-center py-12">
+                         <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
+                         <p className="text-muted-foreground">Loading files...</p>
                       </div>
-                   ) : subscriptionStatus === 'active' ? (
-                      <>
-                         <Card>
-                            <CardContent className="p-4 flex items-center justify-between">
-                               <div className="flex items-center gap-3">
-                                  <div className="p-2 bg-secondary rounded">
-                                     <FileText className="w-5 h-5" />
-                                  </div>
-                                  <div>
-                                     <p className="font-medium">model-weights-v2.1.0.h5</p>
-                                     <p className="text-xs text-muted-foreground">145 MB • TensorFlow</p>
-                                  </div>
-                               </div>
-                               <Button variant="outline" size="sm">
-                                  <Download className="w-4 h-4 mr-2" /> Download
-                               </Button>
-                            </CardContent>
-                         </Card>
-                         <Card>
-                            <CardContent className="p-4 flex items-center justify-between">
-                               <div className="flex items-center gap-3">
-                                  <div className="p-2 bg-secondary rounded">
-                                     <FileText className="w-5 h-5" />
-                                  </div>
-                                  <div>
-                                     <p className="font-medium">python-sdk-1.0.0.zip</p>
-                                     <p className="text-xs text-muted-foreground">2.4 MB • Python Client</p>
-                                  </div>
-                               </div>
-                               <Button variant="outline" size="sm">
-                                  <Download className="w-4 h-4 mr-2" /> Download
-                               </Button>
-                            </CardContent>
-                         </Card>
-                      </>
-                   ) : (
+                   ) : !hasFileAccess ? (
                       <div className="flex flex-col items-center justify-center py-12 bg-secondary/20 rounded-lg border border-dashed border-border">
-                         <Lock className="w-12 h-12 text-muted-foreground mb-4" />
+                         <Lock className="w-16 h-16 text-muted-foreground mb-4" />
                          <h3 className="text-lg font-bold">Access Restricted</h3>
-                         <p className="text-muted-foreground mb-4">Subscribe to this model to access files and SDKs.</p>
-                         <Button onClick={handleSubscribe}>Subscribe Now</Button>
+                         <p className="text-muted-foreground mb-4 text-center max-w-md">
+                            {isPublisher
+                               ? "File access is only available for buyers with active subscriptions."
+                               : "Subscribe to this model to access files and resources."}
+                         </p>
+                         {!isPublisher && (
+                            <Button onClick={handleSubscribe}>Subscribe Now</Button>
+                         )}
                       </div>
+                   ) : modelFiles.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 bg-secondary/20 rounded-lg border border-dashed border-border">
+                         <FileText className="w-12 h-12 text-muted-foreground mb-4" />
+                         <h3 className="text-lg font-bold">No Files Available</h3>
+                         <p className="text-muted-foreground">No files have been uploaded for this model yet.</p>
+                      </div>
+                   ) : (
+                      <>
+                         <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-bold">Model Files ({modelFiles.length})</h3>
+                            <Badge variant="secondary" className="gap-1">
+                               <Unlock className="w-3 h-3" />
+                               Access Granted
+                            </Badge>
+                         </div>
+
+                         {modelFiles.map((file) => {
+                            const isExternalUrl = file.file_type === 'url' || file.file_type === 'external_url';
+
+                            return (
+                            <Card key={file.id}>
+                               <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                                     <div className="p-2 bg-secondary rounded flex-shrink-0">
+                                        {isExternalUrl ? (
+                                           <ExternalLink className="w-5 h-5" />
+                                        ) : (
+                                           <FileText className="w-5 h-5" />
+                                        )}
+                                     </div>
+                                     <div className="min-w-0 flex-1">
+                                        <p className="font-medium truncate">{file.file_name}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                           {file.file_size ? formatFileSize(file.file_size) : 'External URL'}
+                                           {file.description && ` • ${file.description}`}
+                                        </p>
+                                        {isExternalUrl && (
+                                           <a
+                                              href={file.file_url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate mt-1 max-w-md block break-all"
+                                           >
+                                              {file.file_url}
+                                           </a>
+                                        )}
+                                     </div>
+                                  </div>
+                                  {!isExternalUrl && (
+                                     <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="w-full sm:w-auto flex-shrink-0 gap-2"
+                                        onClick={() => handleDownloadFile(file)}
+                                        disabled={downloadingFileId === file.id}
+                                     >
+                                        {downloadingFileId === file.id ? (
+                                           <>
+                                              <Loader2 className="w-4 h-4 animate-spin" />
+                                              Downloading...
+                                           </>
+                                        ) : (
+                                           <>
+                                              <Download className="w-4 h-4" /> Download
+                                           </>
+                                        )}
+                                     </Button>
+                                  )}
+                               </CardContent>
+                            </Card>
+                            );
+                         })}
+                      </>
                    )}
                 </div>
              </TabsContent>
@@ -548,7 +1150,7 @@ POST /api/v1/predict
                 </div>
 
                 <div className="space-y-6">
-                   {MOCK_DISCUSSIONS.filter(d => d.modelId === model.id).length === 0 ? (
+                   {discussions.length === 0 ? (
                       <div className="flex flex-col items-center justify-center py-12 bg-secondary/20 rounded-lg border border-dashed border-border">
                          <MessageSquare className="w-12 h-12 text-muted-foreground mb-4" />
                          <h4 className="text-lg font-bold">No discussions yet</h4>
@@ -558,7 +1160,7 @@ POST /api/v1/predict
                          </Button>
                       </div>
                    ) : (
-                      MOCK_DISCUSSIONS.filter(d => d.modelId === model.id).map(discussion => (
+                      discussions.map(discussion => (
                          <Card key={discussion.id}>
                             <CardHeader className="p-4 bg-secondary/10">
                                <div className="flex items-center justify-between">

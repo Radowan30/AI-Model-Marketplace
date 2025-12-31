@@ -1,7 +1,8 @@
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
+import { useEffect } from "react";
 import {
   ArrowRight,
   Box,
@@ -18,6 +19,36 @@ import {
 import generatedImage from "@assets/generated_images/mimos_ai_marketplace_hero_background.png";
 
 export default function Landing() {
+  const [location] = useLocation();
+
+  // Handle hash navigation (e.g., /#features)
+  useEffect(() => {
+    const handleHashNavigation = () => {
+      const hash = window.location.hash;
+      if (hash) {
+        const element = document.querySelector(hash);
+        if (element) {
+          // Small delay to ensure page is fully rendered
+          setTimeout(() => {
+            element.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 100);
+        }
+      } else {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    };
+
+    // Run on mount and when hash changes
+    handleHashNavigation();
+
+    // Listen for hash changes
+    window.addEventListener("hashchange", handleHashNavigation);
+
+    return () => {
+      window.removeEventListener("hashchange", handleHashNavigation);
+    };
+  }, [location]); // Re-run when location (pathname) changes
+
   return (
     <Layout type="public">
       {/* Hero Section */}
@@ -313,13 +344,13 @@ export default function Landing() {
               models today with our platform
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
-              <Link href="/auth">
+              <Link href="/auth?mode=register&tab=buyer">
                 <Button
                   size="lg"
                   variant="secondary"
                   className="h-14 px-8 text-lg font-bold shadow-lg hover:scale-105 transition-all"
                 >
-                  Create Publisher Account
+                  Create Account
                 </Button>
               </Link>
               <Link href="/auth">
@@ -344,7 +375,7 @@ export default function Landing() {
               <img
                 src="/MIMOSlogo.png"
                 alt="MIMOS Logo"
-                className="h-8 w-auto grayscale brightness-200"
+                className="h-8 w-auto brightness-200"
               />
               <span className="font-heading font-bold text-white tracking-tight text-lg">
                 MIMOS AI Marketplace
