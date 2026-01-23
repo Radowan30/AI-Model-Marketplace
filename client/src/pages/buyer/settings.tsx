@@ -39,7 +39,7 @@ export default function BuyerSettingsPage() {
         name: userProfile.name || "",
         email: userProfile.email || "",
         company: userProfile.company_name || "",
-        phone: "",
+        phone: userProfile.phone || "",
         bio: userProfile.bio || ""
       };
 
@@ -74,6 +74,7 @@ export default function BuyerSettingsPage() {
           name,
           email,
           company_name: company,
+          phone,
           bio
         })
         .eq('id', user.id);

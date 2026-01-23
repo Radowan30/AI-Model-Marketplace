@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Eye, Download, Activity, Clock, ShieldCheck, CheckCircle } from "lucide-react";
 import { Link } from "wouter";
+import { formatCount } from "@/lib/format-utils";
 
 interface ModelCardProps {
   model: Model;
@@ -75,11 +76,11 @@ export function ModelCard({ model, mode = "action", subscribed = false, currentU
             </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Eye className="w-3.5 h-3.5" />
-              <span>{(model.stats.views / 1000).toFixed(1)}k</span>
+              <span>{formatCount(model.stats.views)}</span>
             </div>
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Download className="w-3.5 h-3.5" />
-              <span>{model.stats.downloads}</span>
+              <span>{formatCount(model.stats.downloads)}</span>
             </div>
           </div>
         </CardContent>

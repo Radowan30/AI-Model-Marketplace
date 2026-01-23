@@ -2,8 +2,8 @@ import { Layout } from "@/components/layout/Layout";
 import { StatsCard } from "@/components/StatsCard";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  Bar,
-  BarChart,
+  Line,
+  LineChart,
   ResponsiveContainer,
   XAxis,
   YAxis,
@@ -48,8 +48,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useState, useEffect } from "react";
-import { fetchPublisherAnalytics } from "@/lib/analytics";
+import { fetchPublisherAnalytics, fetchModelWeeklyViews } from "@/lib/analytics";
 import { supabase } from "@/lib/supabase";
+import { formatCount } from "@/lib/format-utils";
 
 const COLORS = ["#981E7D", "#A8A9AD", "#00C49F", "#FFBB28"];
 
@@ -74,9 +75,48 @@ export default function PublisherDashboard() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
 
+  // Model views chart state
+  const [selectedModelId, setSelectedModelId] = useState<string>("all");
+  const [viewsData, setViewsData] = useState<any[]>([]);
+  const [loadingViews, setLoadingViews] = useState(false);
+
+  // Models table pagination state
+  const [modelsCurrentPage, setModelsCurrentPage] = useState(1);
+  const modelsPerPage = 5;
+
   // Subscribers state
   const [subscribers, setSubscribers] = useState<any[]>([]);
   const [loadingSubscribers, setLoadingSubscribers] = useState(true);
+
+  // Collaborating models state (for ownership column)
+  const [collaboratingModelIds, setCollaboratingModelIds] = useState<string[]>([]);
+
+  // Fetch collaborating model IDs
+  useEffect(() => {
+    const fetchCollaboratingModelIds = async () => {
+      if (!user?.id || !userProfile?.email) return;
+
+      try {
+        // Direct query to collaborators table to get model IDs
+        const { data: collaborators, error } = await supabase
+          .from("collaborators")
+          .select("model_id")
+          .ilike("email", userProfile.email);
+
+        if (error) {
+          console.error("Error fetching collaborating models:", error);
+          return;
+        }
+
+        const modelIds = collaborators?.map((c) => c.model_id) || [];
+        setCollaboratingModelIds(modelIds);
+      } catch (error) {
+        console.error("Error in fetchCollaboratingModelIds:", error);
+      }
+    };
+
+    fetchCollaboratingModelIds();
+  }, [user, userProfile]);
 
   // Fetch analytics data
   useEffect(() => {
@@ -88,7 +128,7 @@ export default function PublisherDashboard() {
         const data = await fetchPublisherAnalytics(user.id);
         setAnalytics(data);
       } catch (error) {
-        console.error('Error loading analytics:', error);
+        console.error("Error loading analytics:", error);
       } finally {
         setLoadingAnalytics(false);
       }
@@ -96,6 +136,32 @@ export default function PublisherDashboard() {
 
     loadAnalytics();
   }, [user]);
+
+  // Fetch views data when model selection changes
+  useEffect(() => {
+    const loadViewsData = async () => {
+      if (!analytics) return;
+
+      try {
+        setLoadingViews(true);
+
+        if (selectedModelId === "all") {
+          // Show aggregated data for all models
+          setViewsData(analytics.weeklyViews || []);
+        } else {
+          // Fetch data for specific model
+          const modelViews = await fetchModelWeeklyViews(selectedModelId);
+          setViewsData(modelViews);
+        }
+      } catch (error) {
+        console.error("Error loading views data:", error);
+      } finally {
+        setLoadingViews(false);
+      }
+    };
+
+    loadViewsData();
+  }, [selectedModelId, analytics]);
 
   // Fetch subscribers data
   useEffect(() => {
@@ -105,57 +171,110 @@ export default function PublisherDashboard() {
       try {
         setLoadingSubscribers(true);
 
-        // Get publisher's models
-        const { data: models, error: modelsError } = await supabase
-          .from('models')
-          .select('id, model_name')
-          .eq('publisher_id', user.id);
+        // Get publisher's owned models
+        const { data: ownedModels, error: modelsError } = await supabase
+          .from("models")
+          .select("id, model_name")
+          .eq("publisher_id", user.id);
 
         if (modelsError) throw modelsError;
 
-        if (!models || models.length === 0) {
+        // Get user's email for collaborator check
+        const { data: userData, error: userError } = await supabase
+          .from("users")
+          .select("email")
+          .eq("id", user.id)
+          .single();
+
+        if (userError) {
+          console.error("Error fetching user email:", userError);
+        }
+
+        let collaboratingModels: any[] = [];
+
+        // Get collaborating models if we have the user's email
+        if (userData?.email) {
+          // First, get model IDs where user is a collaborator
+          const { data: collaborators, error: collabError } = await supabase
+            .from("collaborators")
+            .select("model_id")
+            .ilike("email", userData.email);
+
+          if (collabError) {
+            console.error("Error fetching collaborators:", collabError);
+          } else if (collaborators && collaborators.length > 0) {
+            const collaboratingModelIds = collaborators.map((c) => c.model_id);
+
+            // Fetch full model details for collaborating models
+            const { data: collabModels, error: collabModelsError } =
+              await supabase
+                .from("models")
+                .select("id, model_name")
+                .in("id", collaboratingModelIds);
+
+            if (collabModelsError) {
+              console.error("Error fetching collaborating models:", collabModelsError);
+            } else {
+              collaboratingModels = collabModels || [];
+            }
+          }
+        }
+
+        // Combine owned and collaborating models (remove duplicates by id)
+        const allModels = [...(ownedModels || []), ...collaboratingModels];
+        const uniqueModels = Array.from(
+          new Map(allModels.map((m) => [m.id, m])).values()
+        );
+
+        if (uniqueModels.length === 0) {
           setSubscribers([]);
           return;
         }
 
-        const modelIds = models.map(m => m.id);
+        const models = uniqueModels;
+        const modelIds = models.map((m) => m.id);
 
         // Get subscriptions for these models with user profiles
         const { data: subscriptions, error: subsError } = await supabase
-          .from('subscriptions')
-          .select(`
+          .from("subscriptions")
+          .select(
+            `
             id,
             model_id,
             buyer_id,
             status,
-            created_at,
+            subscribed_at,
             cancelled_at,
-            profiles!subscriptions_buyer_id_fkey (
+            users:buyer_id (
               name,
               email
             )
-          `)
-          .in('model_id', modelIds)
-          .order('created_at', { ascending: false });
+          `
+          )
+          .in("model_id", modelIds)
+          .order("subscribed_at", { ascending: false });
 
         if (subsError) throw subsError;
 
         // Transform data to match expected format
-        const transformedSubscribers = subscriptions?.map(sub => {
-          const model = models.find(m => m.id === sub.model_id);
-          return {
-            id: sub.id,
-            subscriber: sub.profiles?.name || 'Unknown User',
-            email: sub.profiles?.email || '',
-            model: model?.model_name || 'Unknown Model',
-            status: sub.status === 'active' ? 'Active' : 'Cancelled',
-            subscriptionDate: new Date(sub.created_at).toISOString().split('T')[0]
-          };
-        }) || [];
+        const transformedSubscribers =
+          subscriptions?.map((sub) => {
+            const model = models.find((m) => m.id === sub.model_id);
+            return {
+              id: sub.id,
+              subscriber: sub.users?.name || "Unknown User",
+              email: sub.users?.email || "",
+              model: model?.model_name || "Unknown Model",
+              status: sub.status === "active" ? "Active" : "Cancelled",
+              subscriptionDate: new Date(sub.subscribed_at)
+                .toISOString()
+                .split("T")[0],
+            };
+          }) || [];
 
         setSubscribers(transformedSubscribers);
       } catch (error) {
-        console.error('Error loading subscribers:', error);
+        console.error("Error loading subscribers:", error);
       } finally {
         setLoadingSubscribers(false);
       }
@@ -177,6 +296,23 @@ export default function PublisherDashboard() {
   const subscribedModels = Array.from(
     new Set(subscribers.map((sub) => sub.model))
   );
+
+  // Category data for pie chart
+  const categoryData = analytics?.categoryDistribution || [];
+
+  // Models table pagination (models are already sorted by views in analytics)
+  const totalModelsPages = Math.ceil(myModels.length / modelsPerPage);
+  const modelsStartIndex = (modelsCurrentPage - 1) * modelsPerPage;
+  const modelsEndIndex = modelsStartIndex + modelsPerPage;
+  const paginatedModels = myModels.slice(modelsStartIndex, modelsEndIndex);
+
+  const handleModelsPreviousPage = () => {
+    setModelsCurrentPage((prev) => Math.max(prev - 1, 1));
+  };
+
+  const handleModelsNextPage = () => {
+    setModelsCurrentPage((prev) => Math.min(prev + 1, totalModelsPages));
+  };
 
   // Filtering logic
   const filteredSubscribers = subscribers.filter((subscriber) => {
@@ -240,10 +376,6 @@ export default function PublisherDashboard() {
     handleFilterChange();
   };
 
-  // Use analytics data for charts (no fallback to mock data)
-  const viewsData = analytics?.weeklyViews || [];
-  const categoryData = analytics?.categoryDistribution || [];
-
   return (
     <Layout type="dashboard">
       <div className="space-y-8">
@@ -252,8 +384,8 @@ export default function PublisherDashboard() {
             Publisher Dashboard
           </h1>
           <p className="text-muted-foreground">
-            Welcome back, {userProfile?.name || 'Publisher'}. Here's how your models are
-            performing.
+            Welcome back, {userProfile?.name || "Publisher"}. Here's how your
+            models are performing.
           </p>
         </div>
 
@@ -261,27 +393,18 @@ export default function PublisherDashboard() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <StatsCard
             title="Total Models"
-            value={loadingAnalytics ? "..." : totalModels}
+            value={loadingAnalytics ? "..." : formatCount(totalModels)}
             icon={Box}
-            trend="+1"
-            trendDirection="up"
-            description="this month"
           />
           <StatsCard
             title="Total Views"
-            value={loadingAnalytics ? "..." : totalViews.toLocaleString()}
+            value={loadingAnalytics ? "..." : formatCount(totalViews)}
             icon={Eye}
-            trend="+12%"
-            trendDirection="up"
-            description="vs last week"
           />
           <StatsCard
             title="Active Subscriptions"
-            value={loadingAnalytics ? "..." : totalSubscribers.toString()}
+            value={loadingAnalytics ? "..." : formatCount(totalSubscribers)}
             icon={Users}
-            trend="+24"
-            trendDirection="up"
-            description="new subscribers"
           />
         </div>
 
@@ -289,24 +412,45 @@ export default function PublisherDashboard() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
           <Card className="col-span-4 border-border/50">
             <CardHeader>
-              <CardTitle>Model Views Over Time</CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle>Model Views Over Time</CardTitle>
+                <Select
+                  value={selectedModelId}
+                  onValueChange={setSelectedModelId}
+                >
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue placeholder="Select Model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Models</SelectItem>
+                    {myModels.map((model: any) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.model_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </CardHeader>
             <CardContent className="pl-2">
-              {loadingAnalytics ? (
+              {loadingAnalytics || loadingViews ? (
                 <div className="h-[300px] flex items-center justify-center">
                   <Loader2 className="w-8 h-8 animate-spin text-primary" />
                 </div>
               ) : viewsData.length === 0 ? (
                 <div className="h-[300px] flex flex-col items-center justify-center text-center">
                   <Eye className="w-12 h-12 text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">No View Data Yet</h3>
+                  <h3 className="text-lg font-semibold mb-2">
+                    No View Data Yet
+                  </h3>
                   <p className="text-sm text-muted-foreground">
-                    View trends will appear here once your models start getting views.
+                    View trends will appear here once your models start getting
+                    views.
                   </p>
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={viewsData}>
+                  <LineChart data={viewsData} margin={{ top: 20, bottom: 10, left: 10, right: 10 }}>
                     <XAxis
                       dataKey="week"
                       stroke="#888888"
@@ -322,19 +466,31 @@ export default function PublisherDashboard() {
                       tickFormatter={(value) => `${value}`}
                     />
                     <Tooltip
-                      cursor={{ fill: "transparent" }}
+                      cursor={{ stroke: "hsl(var(--primary))", strokeWidth: 1, strokeDasharray: "5 5" }}
                       contentStyle={{
                         borderRadius: "8px",
                         border: "none",
                         boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
                       }}
+                      formatter={(value: any, name: any, props: any) => {
+                        return [value, 'Views'];
+                      }}
+                      labelFormatter={(label: any, payload: any) => {
+                        if (payload && payload.length > 0 && payload[0].payload.dateRange) {
+                          return payload[0].payload.dateRange;
+                        }
+                        return label;
+                      }}
                     />
-                    <Bar
+                    <Line
+                      type="monotone"
                       dataKey="views"
-                      fill="hsl(var(--primary))"
-                      radius={[4, 4, 0, 0]}
+                      stroke="hsl(var(--primary))"
+                      strokeWidth={2}
+                      dot={{ fill: "hsl(var(--primary))", r: 4 }}
+                      activeDot={{ r: 6 }}
                     />
-                  </BarChart>
+                  </LineChart>
                 </ResponsiveContainer>
               )}
             </CardContent>
@@ -354,7 +510,8 @@ export default function PublisherDashboard() {
                   <Box className="w-12 h-12 text-muted-foreground mb-4" />
                   <h3 className="text-lg font-semibold mb-2">No Models Yet</h3>
                   <p className="text-sm text-muted-foreground">
-                    Category distribution will appear here once you publish models.
+                    Category distribution will appear here once you publish
+                    models.
                   </p>
                 </div>
               ) : (
@@ -391,7 +548,9 @@ export default function PublisherDashboard() {
                       >
                         <span
                           className="w-2 h-2 rounded-full flex-shrink-0"
-                          style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                          style={{
+                            backgroundColor: COLORS[index % COLORS.length],
+                          }}
                         />
                         {entry.name}
                       </div>
@@ -403,10 +562,10 @@ export default function PublisherDashboard() {
           </Card>
         </div>
 
-        {/* Most Viewed Models Table */}
+        {/* Models by View Count Table */}
         <Card className="border-border/50">
           <CardHeader>
-            <CardTitle>Most Viewed Models</CardTitle>
+            <CardTitle>Models by View Count</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
@@ -417,6 +576,7 @@ export default function PublisherDashboard() {
                     <TableHead className="text-right whitespace-nowrap">
                       Views
                     </TableHead>
+                    <TableHead className="whitespace-nowrap">Ownership</TableHead>
                     <TableHead className="whitespace-nowrap">Status</TableHead>
                     <TableHead className="whitespace-nowrap">
                       Category
@@ -424,31 +584,94 @@ export default function PublisherDashboard() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {myModels.map((model: any) => (
-                    <TableRow key={model.id}>
-                      <TableCell className="font-medium">
-                        {model.model_name}
+                  {paginatedModels.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="h-32 text-center">
+                        <p className="text-muted-foreground">
+                          No models found.
+                        </p>
                       </TableCell>
-                      <TableCell className="text-right">
-                        {(model.total_views || 0).toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={
-                            model.status === "published"
-                              ? "default"
-                              : "secondary"
-                          }
-                        >
-                          {model.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>{model.categories}</TableCell>
                     </TableRow>
-                  ))}
+                  ) : (
+                    paginatedModels.map((model: any) => {
+                      // Check if the model's publisher_id matches the current user
+                      const isOwnModel = model.publisher_id === user?.id;
+                      const isCollaborating = collaboratingModelIds.includes(model.id);
+
+                      return (
+                        <TableRow key={model.id}>
+                          <TableCell className="font-medium">
+                            {model.model_name}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {(model.total_views || 0).toLocaleString()}
+                          </TableCell>
+                          <TableCell>
+                            {isOwnModel ? (
+                              <Badge variant="default" className="bg-blue-500 hover:bg-blue-600">
+                                Own Model
+                              </Badge>
+                            ) : isCollaborating ? (
+                              <Badge variant="secondary" className="bg-purple-100 text-purple-700 hover:bg-purple-200">
+                                Collaborating
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline">Unknown</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                model.status === "published"
+                                  ? "default"
+                                  : "secondary"
+                              }
+                            >
+                              {model.status}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{model.categories}</TableCell>
+                        </TableRow>
+                      );
+                    })
+                  )}
                 </TableBody>
               </Table>
             </div>
+
+            {/* Pagination Controls */}
+            {myModels.length > modelsPerPage && (
+              <div className="flex items-center justify-between mt-4 pt-4 border-t">
+                <div className="text-sm text-muted-foreground">
+                  Showing {myModels.length > 0 ? modelsStartIndex + 1 : 0} to{" "}
+                  {Math.min(modelsEndIndex, myModels.length)} of{" "}
+                  {myModels.length} models
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleModelsPreviousPage}
+                    disabled={modelsCurrentPage === 1}
+                  >
+                    <ChevronLeft className="w-4 h-4 mr-1" />
+                    Previous
+                  </Button>
+                  <div className="text-sm text-muted-foreground">
+                    Page {modelsCurrentPage} of {totalModelsPages}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleModelsNextPage}
+                    disabled={modelsCurrentPage === totalModelsPages}
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4 ml-1" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -629,7 +852,11 @@ export default function PublisherDashboard() {
                         <TableCell>{subscriber.model}</TableCell>
                         <TableCell>
                           <Badge
-                            variant={subscriber.status === "Active" ? "default" : "outline"}
+                            variant={
+                              subscriber.status === "Active"
+                                ? "default"
+                                : "outline"
+                            }
                             className={
                               subscriber.status === "Active"
                                 ? "bg-green-500 hover:bg-green-600"

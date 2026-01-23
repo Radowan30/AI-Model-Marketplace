@@ -18,6 +18,10 @@ export async function fetchPublishedModels() {
       users:publisher_id(
         name,
         email
+      ),
+      collaborators(
+        name,
+        email
       )
     `)
     .eq('status', 'published')
@@ -25,12 +29,61 @@ export async function fetchPublishedModels() {
 
   if (error) throw error;
 
-  // Transform the nested categories structure and add publisher info
-  const modelsWithCategories = (data || []).map(model => ({
+  if (!data || data.length === 0) {
+    return [];
+  }
+
+  // Get all model IDs
+  const modelIds = data.map(m => m.id);
+
+  // Calculate 30 days ago timestamp
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  // Fetch all views for these models (last 30 days)
+  const { data: allViews, error: viewsError } = await supabase
+    .from('views')
+    .select('model_id')
+    .in('model_id', modelIds)
+    .gte('timestamp', thirtyDaysAgo.toISOString());
+
+  if (viewsError) {
+    console.error('Error fetching views:', viewsError);
+  }
+
+  // Fetch all downloads for these models
+  const { data: allDownloads, error: downloadsError } = await supabase
+    .from('user_activities')
+    .select('model_id')
+    .in('model_id', modelIds)
+    .eq('activity_type', 'downloaded');
+
+  if (downloadsError) {
+    console.error('Error fetching downloads:', downloadsError);
+  }
+
+  // Group views and downloads by model_id
+  const viewsByModel: { [key: string]: number } = {};
+  const downloadsByModel: { [key: string]: number } = {};
+
+  (allViews || []).forEach((view: any) => {
+    viewsByModel[view.model_id] = (viewsByModel[view.model_id] || 0) + 1;
+  });
+
+  (allDownloads || []).forEach((download: any) => {
+    downloadsByModel[download.model_id] = (downloadsByModel[download.model_id] || 0) + 1;
+  });
+
+  // Transform the nested categories structure and add publisher info, collaborators, and stats
+  const modelsWithCategories = data.map(model => ({
     ...model,
     categories: model.model_categories?.map((mc: any) => mc.categories).filter(Boolean) || [],
     publisher_name: model.users?.name || 'Unknown Publisher',
-    publisher_email: model.users?.email || ''
+    publisher_email: model.users?.email || '',
+    collaborators: model.collaborators || [],
+    // Add actual statistics from source tables
+    page_views_30_days: viewsByModel[model.id] || 0,
+    downloads: downloadsByModel[model.id] || 0
   }));
 
   return transformDatabaseModels(modelsWithCategories);
@@ -50,6 +103,10 @@ export async function fetchModelById(modelId: string) {
       users:publisher_id(
         name,
         email
+      ),
+      collaborators(
+        name,
+        email
       )
     `)
     .eq('id', modelId)
@@ -57,12 +114,92 @@ export async function fetchModelById(modelId: string) {
 
   if (error) throw error;
 
-  // Transform the nested categories structure and add publisher info
+  // Fetch statistics from source tables
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  // Count page views in last 30 days
+  const { count: pageViews, error: viewsError } = await supabase
+    .from('views')
+    .select('*', { count: 'exact', head: true })
+    .eq('model_id', modelId)
+    .gte('timestamp', thirtyDaysAgo.toISOString());
+
+  if (viewsError) {
+    console.error('Error fetching page views count:', viewsError);
+  }
+
+  // Count active subscriptions
+  const { count: activeSubscribers, error: activeSubsError } = await supabase
+    .from('subscriptions')
+    .select('*', { count: 'exact', head: true })
+    .eq('model_id', modelId)
+    .eq('status', 'active');
+
+  if (activeSubsError) {
+    console.error('Error fetching active subscribers count:', activeSubsError);
+  }
+
+  // Count total subscriptions
+  const { count: totalSubscribers, error: totalSubsError } = await supabase
+    .from('subscriptions')
+    .select('*', { count: 'exact', head: true })
+    .eq('model_id', modelId);
+
+  if (totalSubsError) {
+    console.error('Error fetching total subscribers count:', totalSubsError);
+  }
+
+  // Count discussions
+  const { count: discussionCount, error: discussionsError } = await supabase
+    .from('discussions')
+    .select('*', { count: 'exact', head: true })
+    .eq('model_id', modelId);
+
+  if (discussionsError) {
+    console.error('Error fetching discussions count:', discussionsError);
+  }
+
+  // Count downloads from user_activities
+  const { count: downloadCount, error: downloadsError } = await supabase
+    .from('user_activities')
+    .select('*', { count: 'exact', head: true })
+    .eq('model_id', modelId)
+    .eq('activity_type', 'downloaded');
+
+  if (downloadsError) {
+    console.error('Error fetching downloads count:', downloadsError);
+  }
+
+  // Calculate average rating from ratings table
+  const { data: ratings, error: ratingsError } = await supabase
+    .from('ratings')
+    .select('rating_value')
+    .eq('model_id', modelId);
+
+  if (ratingsError) {
+    console.error('Error fetching ratings:', ratingsError);
+  }
+
+  const totalRatings = ratings?.length || 0;
+  const sumRatings = ratings?.reduce((sum, r) => sum + r.rating_value, 0) || 0;
+  const averageRating = totalRatings > 0 ? sumRatings / totalRatings : 0;
+
+  // Transform the nested categories structure and add publisher info, collaborators, and statistics
   const modelWithCategories = {
     ...data,
     categories: data.model_categories?.map((mc: any) => mc.categories).filter(Boolean) || [],
     publisher_name: data.users?.name || 'Unknown Publisher',
-    publisher_email: data.users?.email || ''
+    publisher_email: data.users?.email || '',
+    collaborators: data.collaborators || [],
+    // Override with actual statistics from source tables
+    page_views_30_days: pageViews || 0,
+    active_subscribers: activeSubscribers || 0,
+    total_subscribers: totalSubscribers || 0,
+    discussion_count: discussionCount || 0,
+    downloads: downloadCount || 0,
+    average_rating: averageRating,
+    total_rating_count: totalRatings
   };
 
   return transformDatabaseModel(modelWithCategories);
@@ -82,6 +219,10 @@ export async function fetchPublisherModels(publisherId: string) {
       users:publisher_id(
         name,
         email
+      ),
+      collaborators(
+        name,
+        email
       )
     `)
     .eq('publisher_id', publisherId)
@@ -89,12 +230,13 @@ export async function fetchPublisherModels(publisherId: string) {
 
   if (error) throw error;
 
-  // Transform the nested categories structure and add publisher info
+  // Transform the nested categories structure and add publisher info and collaborators
   const modelsWithCategories = (data || []).map(model => ({
     ...model,
     categories: model.model_categories?.map((mc: any) => mc.categories).filter(Boolean) || [],
     publisher_name: model.users?.name || 'Unknown Publisher',
-    publisher_email: model.users?.email || ''
+    publisher_email: model.users?.email || '',
+    collaborators: model.collaborators || []
   }));
 
   return transformDatabaseModels(modelsWithCategories);
@@ -319,4 +461,135 @@ export async function fetchUserActivity(userId: string, limit = 10) {
 
   if (error) throw error;
   return data || [];
+}
+
+/**
+ * Insert collaborators for a model
+ */
+export async function insertCollaborators(modelId: string, collaborators: Array<{ name: string; email: string }>) {
+  if (!collaborators || collaborators.length === 0) {
+    return; // Nothing to insert
+  }
+
+  const collaboratorInserts = collaborators.map(collab => ({
+    model_id: modelId,
+    name: collab.name,
+    email: collab.email,
+  }));
+
+  const { error } = await supabase
+    .from('collaborators')
+    .insert(collaboratorInserts);
+
+  if (error) throw error;
+}
+
+/**
+ * Fetch collaborators for a model
+ */
+export async function fetchCollaborators(modelId: string) {
+  const { data, error } = await supabase
+    .from('collaborators')
+    .select('name, email')
+    .eq('model_id', modelId)
+    .order('added_at', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Delete all collaborators for a model
+ */
+export async function deleteCollaborators(modelId: string) {
+  const { error } = await supabase
+    .from('collaborators')
+    .delete()
+    .eq('model_id', modelId);
+
+  if (error) throw error;
+}
+
+/**
+ * Smart update collaborators - only deletes removed and inserts new ones.
+ *
+ * Rules:
+ * - Collaborators CAN add other collaborators
+ * - Collaborators CAN remove other collaborators
+ * - Collaborators CANNOT remove themselves (only owner can, or other collaborators can)
+ *
+ * @param modelId - The model ID
+ * @param newCollaborators - The new list of collaborators
+ * @param currentUserEmail - The email of the current user
+ * @param isModelOwner - Whether the current user is the model owner
+ * @returns Object with counts and warning flag if self-removal was attempted
+ */
+export async function updateCollaborators(
+  modelId: string,
+  newCollaborators: Array<{ name: string; email: string }>,
+  currentUserEmail: string,
+  isModelOwner: boolean
+): Promise<{ added: number; removed: number; selfRemovalAttempted: boolean }> {
+  // Fetch current collaborators
+  const currentCollaborators = await fetchCollaborators(modelId);
+
+  // Normalize emails for comparison (lowercase, trimmed)
+  const normalizeEmail = (email: string) => email.toLowerCase().trim();
+  const currentUserEmailNormalized = normalizeEmail(currentUserEmail);
+
+  const currentEmails = new Set(currentCollaborators.map(c => normalizeEmail(c.email)));
+  const newEmails = new Set(newCollaborators.map(c => normalizeEmail(c.email)));
+
+  // Find collaborators to remove (in current but not in new)
+  let emailsToRemove = [...currentEmails].filter(email => !newEmails.has(email));
+
+  // Check if a non-owner collaborator is trying to remove themselves
+  let selfRemovalAttempted = false;
+  if (!isModelOwner && emailsToRemove.includes(currentUserEmailNormalized)) {
+    selfRemovalAttempted = true;
+    // Prevent self-removal - keep themselves in the list
+    emailsToRemove = emailsToRemove.filter(email => email !== currentUserEmailNormalized);
+  }
+
+  // Find collaborators to add (in new but not in current)
+  const collaboratorsToAdd = newCollaborators.filter(
+    c => !currentEmails.has(normalizeEmail(c.email))
+  );
+
+  let removed = 0;
+  let added = 0;
+
+  // Delete removed collaborators one by one (by email)
+  for (const email of emailsToRemove) {
+    const { error } = await supabase
+      .from('collaborators')
+      .delete()
+      .eq('model_id', modelId)
+      .ilike('email', email);
+
+    if (error) {
+      console.error(`Error removing collaborator ${email}:`, error);
+    } else {
+      removed++;
+    }
+  }
+
+  // Insert new collaborators
+  if (collaboratorsToAdd.length > 0) {
+    const { error } = await supabase
+      .from('collaborators')
+      .insert(collaboratorsToAdd.map(c => ({
+        model_id: modelId,
+        name: c.name,
+        email: c.email,
+      })));
+
+    if (error) {
+      console.error('Error adding collaborators:', error);
+      throw error;
+    }
+    added = collaboratorsToAdd.length;
+  }
+
+  return { added, removed, selfRemovalAttempted };
 }

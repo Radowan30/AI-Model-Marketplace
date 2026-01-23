@@ -18,6 +18,20 @@ export function transformDatabaseModel(dbModel: any): Model {
     }
   }
 
+  // Parse and validate collaborators array
+  let collaborators = [];
+  if (dbModel.collaborators) {
+    if (Array.isArray(dbModel.collaborators)) {
+      // Map database collaborators to ensure proper structure
+      collaborators = dbModel.collaborators
+        .filter((collab: any) => collab && collab.email) // Filter out invalid entries
+        .map((collab: any) => ({
+          name: collab.name || '',
+          email: collab.email,
+        }));
+    }
+  }
+
   return {
     id: dbModel.id,
     name: dbModel.model_name,
@@ -33,8 +47,8 @@ export function transformDatabaseModel(dbModel: any): Model {
     priceAmount: dbModel.subscription_amount,
     tags: dbModel.tags || [],
     stats: {
-      views: dbModel.total_views || 0,
-      downloads: dbModel.total_downloads || 0,
+      views: dbModel.page_views_30_days || dbModel.total_views || 0,
+      downloads: dbModel.downloads || dbModel.total_downloads || 0,
       accuracy: dbModel.accuracy || 0,
       responseTime: dbModel.response_time || 0,
       uptime: 99.9, // Default uptime
@@ -42,13 +56,15 @@ export function transformDatabaseModel(dbModel: any): Model {
     features: dbModel.features || [],
     updatedAt: dbModel.updated_at || dbModel.created_at,
     publishedDate: dbModel.published_at || dbModel.created_at,
-    collaborators: dbModel.collaborators || [],
+    collaborators: collaborators,
     apiDocumentation: dbModel.api_documentation,
     apiSpecFormat: dbModel.api_spec_format || 'text',
     pageViews30Days: dbModel.page_views_30_days || 0,
     activeSubscribers: dbModel.active_subscribers || 0,
     totalSubscribers: dbModel.total_subscribers || 0,
     discussionCount: dbModel.discussion_count || 0,
+    averageRating: dbModel.average_rating || 0,
+    totalRatingCount: dbModel.total_rating_count || 0,
   };
 }
 

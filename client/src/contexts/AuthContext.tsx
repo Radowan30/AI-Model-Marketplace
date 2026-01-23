@@ -1,6 +1,8 @@
 import { createContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { useIdleTimeout } from '@/hooks/use-idle-timeout';
+import { SessionTimeoutModal } from '@/components/SessionTimeoutModal';
 
 interface UserProfile {
   id: string;
@@ -33,6 +35,80 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [userRoles, setUserRoles] = useState<string[]>([]);
   const [currentRole, setCurrentRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showTimeoutWarning, setShowTimeoutWarning] = useState(false);
+
+  // Check if "Remember Me" is enabled
+  const rememberMe = localStorage.getItem('rememberMe') === 'true';
+
+  // Check for session expiry on mount and set session start time
+  useEffect(() => {
+    const checkSessionExpiry = async () => {
+      const sessionStartTime = localStorage.getItem('sessionStartTime');
+      const now = Date.now();
+
+      if (sessionStartTime && user) {
+        const elapsed = now - parseInt(sessionStartTime);
+        const maxSessionTime = rememberMe ? 7 * 24 * 60 * 60 * 1000 : 8 * 60 * 60 * 1000; // 7 days vs 8 hours
+
+        if (elapsed > maxSessionTime) {
+          console.log('Absolute session timeout exceeded - logging out');
+          localStorage.removeItem('sessionStartTime');
+          localStorage.removeItem('rememberMe');
+          await supabase.auth.signOut();
+          window.location.href = '/auth';
+          return;
+        }
+      }
+
+      // Set session start time if not present and user is logged in
+      if (user && !sessionStartTime) {
+        localStorage.setItem('sessionStartTime', now.toString());
+      }
+    };
+
+    checkSessionExpiry();
+  }, [user, rememberMe]);
+
+  // Handle idle timeout
+  const handleIdle = async () => {
+    console.log('User idle timeout - logging out');
+    setShowTimeoutWarning(false);
+    localStorage.removeItem('rememberMe'); // Clear remember me preference
+    localStorage.removeItem('sessionStartTime'); // Clear session start time
+    await supabase.auth.signOut();
+    window.location.href = '/auth';
+  };
+
+  const handleWarning = () => {
+    console.log('Showing idle timeout warning');
+    setShowTimeoutWarning(true);
+  };
+
+  const handleContinueSession = () => {
+    console.log('User chose to continue session');
+    setShowTimeoutWarning(false);
+    resetIdleTimer();
+  };
+
+  const handleLogoutNow = async () => {
+    console.log('User chose to logout now');
+    setShowTimeoutWarning(false);
+    localStorage.removeItem('rememberMe'); // Clear remember me preference
+    localStorage.removeItem('sessionStartTime'); // Clear session start time
+    await supabase.auth.signOut();
+    window.location.href = '/auth';
+  };
+
+  // Idle timeout configuration
+  // If "Remember Me" is enabled, use extended timeout (7 days)
+  // Otherwise, use standard timeout (60 minutes)
+  const { isWarning, remainingTime, resetTimer: resetIdleTimer } = useIdleTimeout({
+    timeout: rememberMe ? 7 * 24 * 60 * 60 * 1000 : 60 * 60 * 1000, // 7 days vs 60 minutes
+    warningDuration: 2 * 60 * 1000, // 2 minutes warning
+    onIdle: handleIdle,
+    onWarning: handleWarning,
+    enabled: !!user, // Only enable when user is logged in
+  });
 
   useEffect(() => {
     // Get initial session
@@ -55,11 +131,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUserRoles([]);
         setCurrentRole(null);
         localStorage.removeItem('currentRole');
-        setLoading(false);
+        localStorage.removeItem('rememberMe'); // Clear remember me preference on logout
+        localStorage.removeItem('sessionStartTime'); // Clear session start time
 
         // Only redirect if we're not already on public pages
         if (window.location.pathname !== '/' && window.location.pathname !== '/auth' && window.location.pathname !== '/auth/callback' && window.location.pathname !== '/reset-password') {
+          // Set loading true to prevent ProtectedRoute from redirecting to /auth during logout
+          setLoading(true);
+          // We're doing a full page reload anyway, so loading state doesn't matter after this
           window.location.href = '/';
+        } else {
+          // Already on a public page, just set loading to false
+          setLoading(false);
         }
         return;
       }
@@ -178,6 +261,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch (error) {
       console.error('Error in fetchUserData:', error);
     } finally {
+      // Clear login/registration flags when user data fetch completes
+      localStorage.removeItem('isLoggingIn');
+      localStorage.removeItem('loginStartTime');
+      localStorage.removeItem('isRegistering');
+      localStorage.removeItem('registrationStartTime');
       setLoading(false);
     }
   };
@@ -203,6 +291,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
       }}
     >
       {children}
+
+      {/* Session timeout warning modal */}
+      <SessionTimeoutModal
+        open={showTimeoutWarning && isWarning}
+        remainingTime={remainingTime}
+        onContinue={handleContinueSession}
+        onLogout={handleLogoutNow}
+      />
     </AuthContext.Provider>
   );
 }

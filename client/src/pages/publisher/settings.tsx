@@ -10,7 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
-import { User, Building2 } from "lucide-react";
+import { User, Building2, Phone as PhoneIcon } from "lucide-react";
 
 export default function SettingsPage() {
   const { toast } = useToast();
@@ -20,6 +20,7 @@ export default function SettingsPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
+  const [phone, setPhone] = useState("");
   const [bio, setBio] = useState("");
 
   // Track original values to detect changes
@@ -27,6 +28,7 @@ export default function SettingsPage() {
     name: "",
     email: "",
     company: "",
+    phone: "",
     bio: ""
   });
 
@@ -37,12 +39,14 @@ export default function SettingsPage() {
         name: userProfile.name || "",
         email: userProfile.email || "",
         company: userProfile.company_name || "",
+        phone: userProfile.phone || "",
         bio: userProfile.bio || ""
       };
 
       setName(initialValues.name);
       setEmail(initialValues.email);
       setCompany(initialValues.company);
+      setPhone(initialValues.phone);
       setBio(initialValues.bio);
       setOriginalValues(initialValues);
     }
@@ -54,6 +58,7 @@ export default function SettingsPage() {
       name !== originalValues.name ||
       email !== originalValues.email ||
       company !== originalValues.company ||
+      phone !== originalValues.phone ||
       bio !== originalValues.bio
     );
   };
@@ -69,6 +74,7 @@ export default function SettingsPage() {
           name,
           email,
           company_name: company,
+          phone,
           bio
         })
         .eq('id', user.id);
@@ -85,6 +91,7 @@ export default function SettingsPage() {
         name,
         email,
         company,
+        phone,
         bio
       });
     } catch (error: any) {
@@ -102,6 +109,7 @@ export default function SettingsPage() {
     setName(originalValues.name);
     setEmail(originalValues.email);
     setCompany(originalValues.company);
+    setPhone(originalValues.phone);
     setBio(originalValues.bio);
 
     toast({
@@ -157,20 +165,39 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="company" className="flex items-center gap-2">
-                <Building2 className="w-4 h-4" />
-                Company / Organization
-              </Label>
-              <Input
-                id="company"
-                placeholder="e.g., MIMOS Berhad"
-                value={company}
-                onChange={(e) => setCompany(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                Optional - Your company or organization name
-              </p>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="company" className="flex items-center gap-2">
+                  <Building2 className="w-4 h-4" />
+                  Company / Organization
+                </Label>
+                <Input
+                  id="company"
+                  placeholder="e.g., MIMOS Berhad"
+                  value={company}
+                  onChange={(e) => setCompany(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional - Your company or organization name
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="phone" className="flex items-center gap-2">
+                  <PhoneIcon className="w-4 h-4" />
+                  Phone Number
+                </Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  placeholder="e.g., +60 12-345 6789"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Optional - For account notifications
+                </p>
+              </div>
             </div>
 
             <div className="space-y-2">

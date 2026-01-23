@@ -13,11 +13,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { useState, useEffect } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRight, Check, Upload, FileText, Code, Users, X, Plus, Info, Trash2, Loader2, ChevronsUpDown } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Upload, FileText, Code, Users, X, Plus, Info, Trash2, Loader2, ChevronsUpDown, Send, FileX, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
-import { uploadFileWithProgress, saveExternalUrl, validateFile, formatFileSize, fetchModelFiles, deleteFile } from "@/lib/file-upload";
-import { fetchModelById, updateModel } from "@/lib/api";
+import { uploadFileWithProgress, saveExternalUrl, validateFile, formatFileSize, fetchModelFiles, deleteFile, downloadFile } from "@/lib/file-upload";
+import { fetchModelById, updateModel, fetchCollaborators, deleteCollaborators, insertCollaborators, updateCollaborators } from "@/lib/api";
 import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/lib/supabase";
 import { Category } from "@/lib/types";
@@ -30,18 +30,15 @@ const STEPS = [
   { id: 4, title: "Collaborators", icon: Users },
 ];
 
-// Mock publishers data for collaborators dropdown
-const PUBLISHERS = [
-  { id: 'u2', name: 'University Malaya NLP Group', email: 'nlp@um.edu.my' },
-  { id: 'u3', name: 'Sime Darby R&D', email: 'research@simedarby.com' },
-  { id: 'u4', name: 'Petronas Digital', email: 'digital@petronas.com' },
-  { id: 'u5', name: 'TM Innovation', email: 'innovation@tm.com.my' },
-];
+interface Publisher {
+  id: string;
+  name: string;
+  email: string;
+}
 
 interface Collaborator {
   email: string;
-  firstName: string;
-  lastName: string;
+  name: string;
   role?: string;
 }
 
@@ -80,6 +77,10 @@ export default function EditModelPage() {
   const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Publishers state
+  const [publishers, setPublishers] = useState<Publisher[]>([]);
+  const [loadingPublishers, setLoadingPublishers] = useState(true);
+
   // Categories state
   const [categories, setCategories] = useState<Category[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
@@ -114,11 +115,11 @@ export default function EditModelPage() {
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [downloadingFileId, setDownloadingFileId] = useState<string | null>(null);
 
   // Tab 4: Collaborators state
   const [collabEmail, setCollabEmail] = useState("");
-  const [collabFirstName, setCollabFirstName] = useState("");
-  const [collabLastName, setCollabLastName] = useState("");
+  const [collabName, setCollabName] = useState("");
   const [selectedPublisher, setSelectedPublisher] = useState("");
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
 
@@ -167,6 +168,15 @@ export default function EditModelPage() {
           filePath: file.file_path,
         }));
         setFiles(mappedFiles);
+
+        // Fetch existing collaborators
+        const existingCollaborators = await fetchCollaborators(modelId);
+        const mappedCollaborators: Collaborator[] = existingCollaborators.map((collab: any) => ({
+          email: collab.email,
+          name: collab.name,
+          role: 'Collaborator',
+        }));
+        setCollaborators(mappedCollaborators);
       } catch (error: any) {
         console.error('Error loading model:', error);
         toast({
@@ -214,6 +224,59 @@ export default function EditModelPage() {
 
     fetchCategories();
   }, [toast]);
+
+  // Fetch publishers from database (for collaborators dropdown)
+  useEffect(() => {
+    const fetchPublishers = async () => {
+      if (!user?.id) return;
+
+      try {
+        setLoadingPublishers(true);
+
+        // Query for all users with publisher role, excluding current user
+        const { data, error } = await supabase
+          .from('user_roles')
+          .select(`
+            user_id,
+            users!inner (
+              id,
+              name,
+              email
+            ),
+            roles!inner (
+              role_name
+            )
+          `)
+          .eq('roles.role_name', 'publisher')
+          .neq('user_id', user.id);
+
+        if (error) {
+          console.error('Error fetching publishers:', error);
+          return;
+        }
+
+        // Transform data to Publisher format
+        const publisherList: Publisher[] = (data || [])
+          .map((item: any) => ({
+            id: item.users.id,
+            name: item.users.name,
+            email: item.users.email,
+          }))
+          .filter((pub: Publisher, index: number, self: Publisher[]) =>
+            // Remove duplicates based on id
+            index === self.findIndex((p) => p.id === pub.id)
+          );
+
+        setPublishers(publisherList);
+      } catch (error) {
+        console.error('Error in fetchPublishers:', error);
+      } finally {
+        setLoadingPublishers(false);
+      }
+    };
+
+    fetchPublishers();
+  }, [user?.id]);
 
   // Create custom category handler
   const handleCreateCustomCategory = async () => {
@@ -293,8 +356,8 @@ export default function EditModelPage() {
   if (loading) {
     return (
       <Layout type="dashboard">
-        <div className="flex flex-col items-center justify-center min-h-[400px]">
-          <Loader2 className="w-12 h-12 animate-spin text-primary mb-4" />
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <Loader2 className="w-12 h-12 animate-spin text-primary mb-4 [stroke-width:1.5]" />
           <p className="text-muted-foreground">Loading model...</p>
         </div>
       </Layout>
@@ -463,6 +526,30 @@ export default function EditModelPage() {
         }
       }
 
+      // Step 2.5: Update collaborators (smart diff-based update)
+      let collaboratorSelfRemovalAttempted = false;
+      try {
+        const currentUserEmail = userProfile?.email || user?.email || '';
+        const isModelOwner = model?.publisher_id === user?.id;
+
+        const result = await updateCollaborators(
+          modelId,
+          collaborators.map(c => ({ name: c.name, email: c.email })),
+          currentUserEmail,
+          isModelOwner
+        );
+
+        // Track if self-removal was attempted (will show warning at the end)
+        collaboratorSelfRemovalAttempted = result.selfRemovalAttempted;
+      } catch (collabError: any) {
+        console.error('Error updating collaborators:', collabError);
+        toast({
+          title: "Warning",
+          description: "Model updated but collaborators could not be saved.",
+          variant: "destructive",
+        });
+      }
+
       // Step 3: Upload any new files (those without fileId)
       const newFiles = files.filter(f => !f.fileId);
       for (let i = 0; i < newFiles.length; i++) {
@@ -497,16 +584,108 @@ export default function EditModelPage() {
         }
       }
 
-      toast({
-        title: "Model Updated Successfully",
-        description: "Your changes have been saved.",
-      });
-      setLocation("/publisher/my-models");
+      // Show appropriate message based on what happened
+      if (collaboratorSelfRemovalAttempted) {
+        toast({
+          title: "Cannot Remove Yourself",
+          description: "Model updated, but you cannot remove yourself from the collaborators list. Only the model owner or another collaborator can remove you.",
+          variant: "destructive",
+        });
+        // Don't redirect - stay on page so user can see they're still a collaborator
+      } else {
+        toast({
+          title: "Model Updated Successfully",
+          description: "Your changes have been saved.",
+        });
+        setLocation("/publisher/my-models");
+      }
     } catch (error: any) {
       console.error('Error updating model:', error);
       toast({
         title: "Error Updating Model",
         description: error.message || "An unexpected error occurred.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handlePublish = async () => {
+    if (!isAllRequiredFieldsComplete()) {
+      const missingFields = [];
+      if (!isTab1Complete()) missingFields.push("General Info");
+      if (!isTab2Complete()) missingFields.push("Technical Details (Response Time & Accuracy)");
+      if (!isTab3Complete()) missingFields.push("Files & Assets (at least one file)");
+
+      toast({
+        title: "Cannot Publish",
+        description: `Please complete all required fields first: ${missingFields.join(", ")}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!user || !modelId) return;
+
+    setIsSubmitting(true);
+
+    try {
+      const { error } = await supabase
+        .from('models')
+        .update({
+          status: 'published',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', modelId);
+
+      if (error) throw error;
+
+      setModel({ ...model, status: 'published' });
+
+      toast({
+        title: "Model Published",
+        description: "Your model is now live on the marketplace.",
+      });
+    } catch (error: any) {
+      console.error('Error publishing model:', error);
+      toast({
+        title: "Error Publishing Model",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleUnpublish = async () => {
+    if (!user || !modelId) return;
+
+    setIsSubmitting(true);
+
+    try {
+      const { error } = await supabase
+        .from('models')
+        .update({
+          status: 'draft',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', modelId);
+
+      if (error) throw error;
+
+      setModel({ ...model, status: 'draft' });
+
+      toast({
+        title: "Model Unpublished",
+        description: "Your model has been unpublished and is now a draft.",
+      });
+    } catch (error: any) {
+      console.error('Error unpublishing model:', error);
+      toast({
+        title: "Error Unpublishing Model",
+        description: error.message,
         variant: "destructive",
       });
     } finally {
@@ -616,6 +795,37 @@ export default function EditModelPage() {
     setFiles(files.filter(f => f.id !== id));
   };
 
+  const handleDownloadFile = async (file: FileEntry) => {
+    if (!modelId || !user || !file.fileId || !file.filePath) return;
+
+    try {
+      setDownloadingFileId(file.id);
+
+      // Download file with signed URL
+      await downloadFile(
+        file.fileId,
+        file.filePath,
+        file.name,
+        modelId,
+        user.id
+      );
+
+      toast({
+        title: "Download Started",
+        description: `Downloading ${file.name}...`,
+      });
+    } catch (error: any) {
+      console.error('Error downloading file:', error);
+      toast({
+        title: "Error downloading file",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setDownloadingFileId(null);
+    }
+  };
+
   // Drag and drop handlers
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
@@ -663,7 +873,7 @@ export default function EditModelPage() {
 
   // Tab 4: Add collaborator by email handler
   const handleAddCollaborator = () => {
-    if (!collabEmail.trim() || !collabFirstName.trim() || !collabLastName.trim()) {
+    if (!collabEmail.trim() || !collabName.trim()) {
       toast({
         title: "Validation Error",
         description: "All fields are required to add a collaborator.",
@@ -683,10 +893,19 @@ export default function EditModelPage() {
       return;
     }
 
+    // Check if already added
+    if (collaborators.some(c => c.email === collabEmail)) {
+      toast({
+        title: "Already Added",
+        description: "This collaborator is already in the list.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const newCollab: Collaborator = {
       email: collabEmail,
-      firstName: collabFirstName,
-      lastName: collabLastName,
+      name: collabName,
       role: 'Collaborator',
     };
 
@@ -694,15 +913,14 @@ export default function EditModelPage() {
 
     // Clear form
     setCollabEmail("");
-    setCollabFirstName("");
-    setCollabLastName("");
+    setCollabName("");
   };
 
   // Tab 4: Add existing publisher handler
   const handleAddPublisher = () => {
     if (!selectedPublisher) return;
 
-    const publisher = PUBLISHERS.find(p => p.id === selectedPublisher);
+    const publisher = publishers.find(p => p.id === selectedPublisher);
     if (!publisher) return;
 
     // Check if already added
@@ -715,11 +933,9 @@ export default function EditModelPage() {
       return;
     }
 
-    const [firstName, ...lastNameParts] = publisher.name.split(' ');
     const newCollab: Collaborator = {
       email: publisher.email,
-      firstName: firstName,
-      lastName: lastNameParts.join(' '),
+      name: publisher.name,
       role: 'Publisher',
     };
 
@@ -734,14 +950,27 @@ export default function EditModelPage() {
   return (
     <Layout type="dashboard">
       <div className="max-w-4xl mx-auto space-y-8">
-        <div className="flex items-center gap-4 mb-8">
-          <Button variant="ghost" size="icon" onClick={() => setLocation("/publisher/my-models")}>
-            <ArrowLeft className="w-4 h-4" />
-          </Button>
-          <div>
-             <h1 className="text-3xl font-heading font-bold">Edit Model</h1>
-             <p className="text-muted-foreground">Update your model information.</p>
+        <div className="flex items-center justify-between gap-4 mb-8">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => setLocation("/publisher/my-models")}>
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <div>
+               <h1 className="text-3xl font-heading font-bold">Edit Model</h1>
+               <p className="text-muted-foreground">Update your model information.</p>
+            </div>
           </div>
+          {model?.status === 'published' && (
+            <Button
+              variant="outline"
+              onClick={handleUnpublish}
+              disabled={isSubmitting}
+              className="gap-2"
+            >
+              <FileX className="w-4 h-4" />
+              Unpublish Model
+            </Button>
+          )}
         </div>
 
         {/* Wizard Progress */}
@@ -1186,59 +1415,87 @@ export default function EditModelPage() {
                       <div className="space-y-3">
                         <h3 className="font-semibold">Added Files ({files.length})</h3>
                         <div className="space-y-2">
-                          {files.map((file) => (
-                            <div
-                              key={file.id}
-                              className="flex items-start justify-between p-4 border rounded-lg bg-card hover:bg-secondary/20 transition-colors"
-                            >
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                  <FileText className="w-4 h-4 text-muted-foreground" />
-                                  <p className="font-medium">{file.name}</p>
-                                  <Badge variant="outline" className="text-xs">
-                                    {file.type === 'upload' ? 'Upload' : 'URL'}
-                                  </Badge>
-                                  {file.size && (
-                                    <span className="text-xs text-muted-foreground">
-                                      ({formatFileSize(file.size)})
-                                    </span>
-                                  )}
-                                  {file.fileId && (
-                                    <Badge variant="secondary" className="text-xs">
-                                      Saved
+                          {files.map((file) => {
+                            const isExternalUrl = file.type === 'external_url';
+                            return (
+                              <div
+                                key={file.id}
+                                className="flex items-start justify-between p-4 border rounded-lg bg-card hover:bg-secondary/20 transition-colors"
+                              >
+                                <div className="flex-1 space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <FileText className="w-4 h-4 text-muted-foreground" />
+                                    <p className="font-medium">{file.name}</p>
+                                    <Badge variant="outline" className="text-xs">
+                                      {file.type === 'upload' ? 'Upload' : 'URL'}
                                     </Badge>
+                                    {file.size && (
+                                      <span className="text-xs text-muted-foreground">
+                                        ({formatFileSize(file.size)})
+                                      </span>
+                                    )}
+                                    {file.fileId && (
+                                      <Badge variant="secondary" className="text-xs">
+                                        Saved
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  {file.description && (
+                                    <p className="text-sm text-muted-foreground ml-6">
+                                      {file.description}
+                                    </p>
+                                  )}
+                                  {isExternalUrl && file.url && (
+                                    <a
+                                      href={file.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-blue-600 hover:text-blue-800 hover:underline ml-6 truncate max-w-md block break-all"
+                                    >
+                                      {file.url}
+                                    </a>
+                                  )}
+                                  {!isExternalUrl && file.fileId && (
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="ml-6 gap-2"
+                                      onClick={() => handleDownloadFile(file)}
+                                      disabled={downloadingFileId === file.id}
+                                    >
+                                      {downloadingFileId === file.id ? (
+                                        <>
+                                          <Loader2 className="w-4 h-4 animate-spin" />
+                                          Downloading...
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Download className="w-4 h-4" /> Download
+                                        </>
+                                      )}
+                                    </Button>
+                                  )}
+                                  {file.uploading && file.uploadProgress !== undefined && (
+                                    <div className="ml-6">
+                                      <Progress value={file.uploadProgress} className="h-2" />
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        Uploading... {file.uploadProgress}%
+                                      </p>
+                                    </div>
                                   )}
                                 </div>
-                                {file.description && (
-                                  <p className="text-sm text-muted-foreground mt-1 ml-6">
-                                    {file.description}
-                                  </p>
-                                )}
-                                {file.url && (
-                                  <p className="text-xs text-blue-600 mt-1 ml-6 truncate max-w-md">
-                                    {file.url}
-                                  </p>
-                                )}
-                                {file.uploading && file.uploadProgress !== undefined && (
-                                  <div className="mt-2 ml-6">
-                                    <Progress value={file.uploadProgress} className="h-2" />
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      Uploading... {file.uploadProgress}%
-                                    </p>
-                                  </div>
-                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() => handleRemoveFile(file.id)}
+                                  className="text-destructive hover:text-destructive"
+                                  disabled={file.uploading}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
                               </div>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => handleRemoveFile(file.id)}
-                                className="text-destructive hover:text-destructive"
-                                disabled={file.uploading}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     )}
@@ -1270,11 +1527,11 @@ export default function EditModelPage() {
                           {collaborators.map((collab, index) => (
                             <div key={index} className="flex items-center gap-3 mb-3">
                               <div className="w-8 h-8 rounded-full bg-secondary text-foreground flex items-center justify-center text-xs font-bold shrink-0">
-                                {getInitials(`${collab.firstName} ${collab.lastName}`)}
+                                {getInitials(collab.name)}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium truncate">
-                                  {collab.firstName} {collab.lastName}
+                                  {collab.name}
                                 </p>
                                 <p className="text-xs text-muted-foreground truncate">{collab.email}</p>
                                 <p className="text-xs text-muted-foreground">{collab.role}</p>
@@ -1304,23 +1561,13 @@ export default function EditModelPage() {
                         <div className="space-y-4 border rounded-lg p-4">
                           <h4 className="font-medium">Add by Email</h4>
 
-                          <div className="grid md:grid-cols-2 gap-3">
-                            <div className="space-y-2">
-                              <Label>First Name <span className="text-destructive">*</span></Label>
-                              <Input
-                                placeholder="John"
-                                value={collabFirstName}
-                                onChange={(e) => setCollabFirstName(e.target.value)}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Last Name <span className="text-destructive">*</span></Label>
-                              <Input
-                                placeholder="Doe"
-                                value={collabLastName}
-                                onChange={(e) => setCollabLastName(e.target.value)}
-                              />
-                            </div>
+                          <div className="space-y-2">
+                            <Label>Full Name <span className="text-destructive">*</span></Label>
+                            <Input
+                              placeholder="John Doe"
+                              value={collabName}
+                              onChange={(e) => setCollabName(e.target.value)}
+                            />
                           </div>
 
                           <div className="space-y-2">
@@ -1353,12 +1600,12 @@ export default function EditModelPage() {
 
                           <div className="space-y-2">
                             <Label>Select Publisher</Label>
-                            <Select value={selectedPublisher} onValueChange={setSelectedPublisher}>
+                            <Select value={selectedPublisher} onValueChange={setSelectedPublisher} disabled={loadingPublishers}>
                               <SelectTrigger>
-                                <SelectValue placeholder="Choose a publisher..." />
+                                <SelectValue placeholder={loadingPublishers ? "Loading publishers..." : "Choose a publisher..."} />
                               </SelectTrigger>
                               <SelectContent>
-                                {PUBLISHERS.map((pub) => (
+                                {publishers.map((pub) => (
                                   <SelectItem key={pub.id} value={pub.id}>
                                     {pub.name} - {pub.email}
                                   </SelectItem>
@@ -1386,26 +1633,56 @@ export default function EditModelPage() {
 
         {/* Footer Actions */}
         <div className="flex justify-between">
-           <Button variant="outline" onClick={handleBack} disabled={step === 1 || isSubmitting}>
+           <Button variant="outline" onClick={handleBack} disabled={step === 1 || isSubmitting} className="gap-2">
+              <ArrowLeft className="w-4 h-4" />
               Back
            </Button>
-           <Button
-             onClick={handleNext}
-             className="gap-2"
-             disabled={(step === 4 && !isAllRequiredFieldsComplete()) || isSubmitting}
-           >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Updating...
-                </>
-              ) : (
-                <>
-                  {step === 4 ? "Update Model" : "Next Step"}
-                  {step !== 4 && <ArrowRight className="w-4 h-4" />}
-                </>
-              )}
-           </Button>
+           <div className="flex gap-2">
+             {step !== 4 && (
+               <Button
+                 onClick={handleNext}
+                 className="gap-2"
+                 variant="outline"
+                 disabled={isSubmitting}
+               >
+                 Next Step
+                 <ArrowRight className="w-4 h-4" />
+               </Button>
+             )}
+             <Button
+               onClick={handleSubmit}
+               className="gap-2"
+               disabled={!isAllRequiredFieldsComplete() || isSubmitting}
+             >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  "Update Model"
+                )}
+             </Button>
+             {model?.status === 'draft' && (
+               <Button
+                 onClick={handlePublish}
+                 className="gap-2"
+                 disabled={!isAllRequiredFieldsComplete() || isSubmitting}
+               >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Publishing...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      Publish Model
+                    </>
+                  )}
+               </Button>
+             )}
+           </div>
         </div>
 
         {/* Custom Category Dialog */}

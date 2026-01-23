@@ -1,6 +1,7 @@
 import { ReactNode } from 'react';
 import { Redirect } from 'wouter';
 import { useAuth } from '@/hooks/use-auth';
+import { Loader2 } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -19,7 +20,7 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4 [stroke-width:1.5]" />
           <p className="text-muted-foreground">
             {isRegistering ? 'Setting up your account...' : isLoggingIn ? 'Logging you in...' : 'Loading...'}
           </p>

@@ -12,10 +12,11 @@ import { fetchUserActivities } from "@/lib/activity-logger";
 
 export default function BuyerDashboard() {
   const [showAllActivities, setShowAllActivities] = useState(false);
-  const { user } = useAuth();
+  const { user, currentRole } = useAuth();
 
   const [activeSubs, setActiveSubs] = useState<any[]>([]);
   const [subscribedModels, setSubscribedModels] = useState<any[]>([]);
+  const [marketplaceModelsCount, setMarketplaceModelsCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [recentActivities, setRecentActivities] = useState<any[]>([]);
   const [loadingActivities, setLoadingActivities] = useState(true);
@@ -28,6 +29,18 @@ export default function BuyerDashboard() {
       try {
         setLoading(true);
 
+        // Fetch count of published models in marketplace
+        const { count: modelsCount, error: countError } = await supabase
+          .from('models')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'published');
+
+        if (countError) {
+          console.error('Error fetching models count:', countError);
+        } else {
+          setMarketplaceModelsCount(modelsCount || 0);
+        }
+
         // Fetch subscriptions with model details
         const { data: subscriptions, error } = await supabase
           .from('subscriptions')
@@ -35,7 +48,7 @@ export default function BuyerDashboard() {
             *,
             models (
               *,
-              profiles!models_publisher_id_fkey (
+              users:publisher_id (
                 name,
                 email
               )
@@ -50,12 +63,68 @@ export default function BuyerDashboard() {
 
         setActiveSubs(active);
 
-        // Get full model details for active subscriptions
-        const models = active
-          .map(sub => sub.models)
+        if (active.length === 0) {
+          setSubscribedModels([]);
+          return;
+        }
+
+        // Get all model IDs to fetch their categories
+        const modelIds = active
+          .map((sub) => sub.model_id)
           .filter(Boolean);
 
-        setSubscribedModels(models);
+        // Fetch categories for all models
+        const { data: modelCategoriesData, error: categoriesError } =
+          await supabase
+            .from('model_categories')
+            .select(`
+              model_id,
+              categories (
+                id,
+                name,
+                is_custom
+              )
+            `)
+            .in('model_id', modelIds);
+
+        if (categoriesError) {
+          console.error('Error fetching categories:', categoriesError);
+        }
+
+        // Group categories by model_id
+        const categoriesByModel: { [key: string]: any[] } = {};
+        (modelCategoriesData || []).forEach((mc: any) => {
+          if (!categoriesByModel[mc.model_id]) {
+            categoriesByModel[mc.model_id] = [];
+          }
+          if (mc.categories) {
+            categoriesByModel[mc.model_id].push(mc.categories);
+          }
+        });
+
+        // Transform to match Model type expected by ModelCard
+        const transformedModels = active
+          .filter((sub) => sub.models) // Only include subscriptions where model data was fetched
+          .map((sub) => ({
+            id: sub.models.id,
+            name: sub.models.model_name,
+            shortDescription: sub.models.short_description || sub.models.detailed_description || '',
+            description: sub.models.detailed_description || '',
+            publisherId: sub.models.publisher_id,
+            publisherName: sub.models.users?.name || 'Unknown Publisher',
+            categories: categoriesByModel[sub.model_id] || [],
+            version: sub.models.version || '1.0.0',
+            price: sub.models.pricing_tier || 'free',
+            status: sub.models.status,
+            stats: {
+              accuracy: sub.models.accuracy || 0,
+              responseTime: sub.models.response_time || 0,
+              views: 0,
+              downloads: 0
+            }
+          }));
+
+        setSubscribedModels(transformedModels);
       } catch (error) {
         console.error('Error loading dashboard data:', error);
       } finally {
@@ -69,11 +138,11 @@ export default function BuyerDashboard() {
   // Fetch recent activities
   useEffect(() => {
     const loadActivities = async () => {
-      if (!user?.id) return;
+      if (!user?.id || !currentRole) return;
 
       try {
         setLoadingActivities(true);
-        const activities = await fetchUserActivities(user.id, 20); // Fetch last 20 activities
+        const activities = await fetchUserActivities(user.id, currentRole as 'buyer' | 'publisher', 20); // Fetch last 20 activities for current role
 
         // Transform to match UI expectations
         const transformedActivities = activities.map(activity => ({
@@ -94,7 +163,7 @@ export default function BuyerDashboard() {
     };
 
     loadActivities();
-  }, [user]);
+  }, [user, currentRole]);
 
   const activitiesToShow = showAllActivities ? recentActivities : recentActivities.slice(0, 5);
 
@@ -169,7 +238,7 @@ export default function BuyerDashboard() {
         <div className="grid gap-4 md:grid-cols-2">
            <StatsCard
              title="Available Models in Marketplace"
-             value="-"
+             value={marketplaceModelsCount}
              icon={Store}
              description="models to explore"
            />
@@ -204,7 +273,7 @@ export default function BuyerDashboard() {
               </Card>
             </Link>
 
-            <Link href="/buyer/my-purchases">
+            <Link href="/buyer/my-subscriptions">
               <Card className="cursor-pointer hover:shadow-lg transition-all duration-300 border-primary/20 hover:border-primary bg-gradient-to-br from-primary/5 to-transparent group">
                 <CardContent className="p-6 flex items-start gap-4">
                   <div className="p-3 bg-primary/10 rounded-lg group-hover:bg-primary/20 transition-colors">
@@ -228,7 +297,7 @@ export default function BuyerDashboard() {
         <div>
            <div className="flex items-center justify-between mb-4">
               <h2 className="text-xl font-bold">Your Active Models</h2>
-              <Link href="/buyer/my-purchases">
+              <Link href="/buyer/my-subscriptions">
                  <Button variant="link">View All</Button>
               </Link>
            </div>

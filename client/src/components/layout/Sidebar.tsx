@@ -62,7 +62,9 @@ export function Sidebar({ mobileSidebarOpen = false, onClose }: SidebarProps) {
     await supabase.auth.signOut();
     // Clear localStorage
     localStorage.removeItem('currentRole');
-    setLocation("/");
+    localStorage.removeItem('rememberMe'); // Clear remember me preference on logout
+    localStorage.removeItem('sessionStartTime'); // Clear session start time
+    // AuthContext listener will handle redirect to "/"
     setLogoutDialogOpen(false);
     onClose?.(); // Close mobile sidebar
   };
@@ -81,7 +83,7 @@ export function Sidebar({ mobileSidebarOpen = false, onClose }: SidebarProps) {
   const buyerLinks = [
     { icon: LayoutDashboard, label: "Dashboard", href: "/buyer/dashboard" },
     { icon: Search, label: "Browse Marketplace", href: "/marketplace" },
-    { icon: ShoppingBag, label: "My Purchases", href: "/buyer/my-purchases" },
+    { icon: ShoppingBag, label: "My Subscriptions", href: "/buyer/my-subscriptions" },
     { icon: Settings, label: "Settings", href: "/buyer/settings" },
   ];
 

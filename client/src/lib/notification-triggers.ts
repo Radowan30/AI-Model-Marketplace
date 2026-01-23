@@ -243,6 +243,56 @@ export function triggerDiscussionReplyNotification(params: {
 }
 
 /**
+ * Trigger notification when someone replies to a comment
+ *
+ * WHERE TO USE:
+ * - After posting a reply to someone's comment
+ * - Notify the comment author about the reply
+ *
+ * EXAMPLE USAGE:
+ * ```typescript
+ * // In model-details.tsx after posting comment reply
+ * const handlePostComment = async (discussionId: string, content: string) => {
+ *   if (replyingTo) {
+ *     const notification = triggerCommentReplyNotification({
+ *       modelId: model.id,
+ *       modelName: model.name,
+ *       recipientUserId: replyingTo.userId,
+ *       discussionId: discussionId,
+ *       replyAuthor: currentUser.name,
+ *       commentPreview: content.substring(0, 100),
+ *     });
+ *     await createNotification(notification);
+ *   }
+ * };
+ * ```
+ */
+export function triggerCommentReplyNotification(params: {
+  modelId: string;
+  modelName: string;
+  recipientUserId: string;
+  discussionId: string;
+  replyAuthor: string;
+  commentPreview: string;
+}): Notification {
+  return {
+    id: generateNotificationId(),
+    userId: params.recipientUserId,
+    type: "discussion_reply",
+    title: `${params.replyAuthor} replied to your comment`,
+    message: params.commentPreview,
+    relatedModelId: params.modelId,
+    relatedModelName: params.modelName,
+    relatedDiscussionId: params.discussionId,
+    isRead: false,
+    createdAt: new Date().toISOString(),
+    metadata: {
+      replyAuthor: params.replyAuthor,
+    },
+  };
+}
+
+/**
  * Trigger notifications when a model is updated
  *
  * WHERE TO USE:

@@ -132,7 +132,7 @@ export default function AuthCallback() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-secondary/20">
       <div className="text-center">
-        <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-primary" />
+        <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-primary [stroke-width:1.5]" />
         <h1 className="text-2xl font-bold mb-2">Completing authentication...</h1>
         <p className="text-muted-foreground">Please wait while we set up your account.</p>
       </div>

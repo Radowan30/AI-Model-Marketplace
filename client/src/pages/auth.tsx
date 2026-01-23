@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -84,64 +85,153 @@ export default function AuthPage() {
       });
 
       if (signInData?.user) {
-        // User exists - check if they already have this role (reuse roleCheck from above)
-        const { data: existingRole } = await supabase
-          .from('user_roles')
-          .select('id')
-          .eq('user_id', signInData.user.id)
-          .eq('role_id', roleCheck.id)
-          .single();
+        // User exists with email/password - check providers
+        const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
 
-        if (existingRole) {
-          // User already has this role - reject registration
-          localStorage.removeItem('currentRole');
-          localStorage.removeItem('isRegistering');
-          localStorage.removeItem('registrationStartTime');
-          await supabase.auth.signOut();
-          setLoading(false);
-          toast({
-            title: "Account already exists",
-            description: `You already have a ${selectedRole} account. Please use the login form instead.`,
-            variant: "destructive",
+        if (!userError && authUser) {
+          // Check auth providers - if has email provider, account exists with email/password
+          const providers = authUser.app_metadata?.providers || [];
+
+          if (providers.includes('email')) {
+            // User registered with email/password - check if they already have this role
+            const { data: existingRole } = await supabase
+              .from('user_roles')
+              .select('id')
+              .eq('user_id', signInData.user.id)
+              .eq('role_id', roleCheck.id)
+              .single();
+
+            if (existingRole) {
+              // User already has this role - reject registration
+              localStorage.removeItem('currentRole');
+              localStorage.removeItem('isRegistering');
+              localStorage.removeItem('registrationStartTime');
+              await supabase.auth.signOut();
+              setLoading(false);
+              toast({
+                title: "Account already exists",
+                description: `You already have a ${selectedRole} account. Please use the login form instead.`,
+                variant: "destructive",
+              });
+              return;
+            }
+
+            // User exists but doesn't have this role - add it
+            console.log('Existing user adding new role using atomic function');
+
+            const { data: result, error: rpcError } = await supabase.rpc('create_user_with_role', {
+              p_user_id: signInData.user.id,
+              p_name: name, // Use name from registration form, not from Google metadata
+              p_email: signInData.user.email || '',
+              p_role_name: selectedRole
+            });
+
+            console.log('RPC result for existing user:', result);
+
+            if (rpcError) {
+              console.error('RPC error for existing user:', rpcError);
+              localStorage.removeItem('currentRole');
+              throw rpcError;
+            }
+
+            if (result && !result.success) {
+              console.error('Function returned error for existing user:', result);
+              localStorage.removeItem('currentRole');
+              throw new Error(result.error || 'Failed to add role to existing user');
+            }
+
+            // Role added successfully - sign out and redirect to login
+            localStorage.removeItem('currentRole');
+            localStorage.removeItem('isRegistering');
+            localStorage.removeItem('registrationStartTime');
+            await supabase.auth.signOut();
+
+            setLoading(false);
+            toast({
+              title: "Role added!",
+              description: `${selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1)} access has been added to your account. Please log in to continue.`,
+            });
+
+            // Switch to login mode
+            setIsRegistering(false);
+            return;
+          }
+        }
+      }
+
+      // Check if sign-in failed because user exists with Google-only
+      if (signInError && !signInData?.user) {
+        // Call server API to check if user exists with Google-only and add password
+        try {
+          const response = await fetch('/api/auth/add-password', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ email, password }),
           });
-          return;
+
+          const result = await response.json();
+
+          if (response.ok && result.success) {
+            console.log('Successfully added password to Google-only account');
+
+            // Now sign in with the new password
+            const { data: newSignInData, error: newSignInError } = await supabase.auth.signInWithPassword({
+              email,
+              password
+            });
+
+            if (newSignInError || !newSignInData?.user) {
+              throw new Error('Failed to sign in after adding password');
+            }
+
+            // Check if user has the role
+            const { data: existingRole } = await supabase
+              .from('user_roles')
+              .select('id')
+              .eq('user_id', newSignInData.user.id)
+              .eq('role_id', roleCheck.id)
+              .single();
+
+            if (!existingRole) {
+              // Add the role
+              const { data: roleResult, error: rpcError } = await supabase.rpc('create_user_with_role', {
+                p_user_id: newSignInData.user.id,
+                p_name: name, // Use name from registration form, not from Google metadata
+                p_email: newSignInData.user.email || '',
+                p_role_name: selectedRole
+              });
+
+              if (rpcError || (roleResult && !roleResult.success)) {
+                throw new Error('Failed to add role');
+              }
+            }
+
+            // Sign out and redirect to login
+            localStorage.removeItem('currentRole');
+            localStorage.removeItem('isRegistering');
+            localStorage.removeItem('registrationStartTime');
+            await supabase.auth.signOut();
+
+            setLoading(false);
+            toast({
+              title: "Email/Password added!",
+              description: `You can now sign in with email and password. ${!existingRole ? `${selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1)} access has been added.` : ''}`,
+            });
+
+            setIsRegistering(false);
+            return;
+          } else if (response.status === 404 || response.status === 400) {
+            // User doesn't exist with Google-only, continue to normal sign-up
+            console.log('User does not exist with Google-only, proceeding with sign-up');
+          } else {
+            console.error('Error from add-password API:', result.error);
+          }
+        } catch (apiError: any) {
+          console.error('API call error:', apiError);
+          // Continue to normal sign-up flow if API fails
         }
-
-        // User exists but doesn't have this role - add it using atomic function
-        console.log('Existing user adding new role using atomic function');
-
-        const { data: result, error: rpcError } = await supabase.rpc('create_user_with_role', {
-          p_user_id: signInData.user.id,
-          p_name: signInData.user.user_metadata?.full_name || signInData.user.email?.split('@')[0] || 'User',
-          p_email: signInData.user.email || '',
-          p_role_name: selectedRole
-        });
-
-        console.log('RPC result for existing user:', result);
-
-        if (rpcError) {
-          console.error('RPC error for existing user:', rpcError);
-          localStorage.removeItem('currentRole');
-          throw rpcError;
-        }
-
-        if (result && !result.success) {
-          console.error('Function returned error for existing user:', result);
-          localStorage.removeItem('currentRole');
-          throw new Error(result.error || 'Failed to add role to existing user');
-        }
-
-        // Role added successfully - localStorage already set, just redirect
-        localStorage.removeItem('isRegistering');
-        localStorage.removeItem('registrationStartTime');
-
-        setLoading(false);
-        toast({
-          title: "Role added!",
-          description: `${selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1)} access has been added to your account.`,
-        });
-        setLocation(selectedRole === 'publisher' ? '/publisher/dashboard' : '/buyer/dashboard');
-        return;
       }
 
       // Step 4: User doesn't exist in auth - proceed with sign up
@@ -190,9 +280,8 @@ export default function AuthPage() {
 
         console.log('User and role created successfully:', result);
 
-        // Clear registration flags on success
-        localStorage.removeItem('isRegistering');
-        localStorage.removeItem('registrationStartTime');
+        // Don't clear registration flags yet - let AuthContext clear them after fetchUserData completes
+        // This prevents ProtectedRoute from redirecting before roles are loaded
 
         toast({
           title: "Account created!",
@@ -213,10 +302,6 @@ export default function AuthPage() {
       const errorMessage = error.message || "An error occurred during registration.";
       const errorDetails = error.details ? ` Details: ${error.details}` : '';
       const errorHint = error.hint ? ` Hint: ${error.hint}` : '';
-      const errorCode = error.code ? ` Code: ${error.code}` : '';
-
-      // Alert to prevent page reload and see the full error
-      alert(`Registration failed!\n\nError: ${errorMessage}\n${errorDetails}${errorHint}${errorCode}\n\nCheck console for more details.`);
 
       toast({
         title: "Registration failed",
@@ -233,11 +318,15 @@ export default function AuthPage() {
     const formData = new FormData(e.target as HTMLFormElement);
     const email = formData.get(selectedRole === 'buyer' ? 'email' : 'pub-email') as string;
     const password = formData.get(selectedRole === 'buyer' ? 'password' : 'pub-password') as string;
+    const rememberMe = formData.get(selectedRole === 'buyer' ? 'remember' : 'pub-remember') === 'on';
 
     try {
       // Step 1: Set login flag to prevent race conditions with ProtectedRoute
       localStorage.setItem('isLoggingIn', 'true');
       localStorage.setItem('loginStartTime', Date.now().toString());
+
+      // Store Remember Me preference
+      localStorage.setItem('rememberMe', rememberMe ? 'true' : 'false');
 
       // Step 2: Store current role in localStorage BEFORE sign in
       // This ensures AuthContext reads the correct role when onAuthStateChange fires
@@ -280,6 +369,8 @@ export default function AuthPage() {
         localStorage.removeItem('currentRole');
         localStorage.removeItem('isLoggingIn');
         localStorage.removeItem('loginStartTime');
+        localStorage.removeItem('rememberMe'); // Clear remember me on failed login
+        localStorage.removeItem('sessionStartTime'); // Clear session start time
         await supabase.auth.signOut();
         setLoading(false);
         toast({
@@ -290,9 +381,8 @@ export default function AuthPage() {
         return;
       }
 
-      // Clear login flags on success
-      localStorage.removeItem('isLoggingIn');
-      localStorage.removeItem('loginStartTime');
+      // Don't clear login flags yet - let AuthContext clear them after fetchUserData completes
+      // This prevents ProtectedRoute from redirecting before roles are loaded
 
       setLoading(false);
       toast({
@@ -320,6 +410,11 @@ export default function AuthPage() {
       // This ensures when user returns from Google, the role is already set
       localStorage.setItem('currentRole', selectedRole);
 
+      // Set OAuth callback flag to prevent AuthContext from signing out
+      // while the role is being added in the callback page
+      localStorage.setItem('isRegistering', 'true');
+      localStorage.setItem('registrationStartTime', Date.now().toString());
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -333,6 +428,8 @@ export default function AuthPage() {
 
       if (error) {
         localStorage.removeItem('currentRole');
+        localStorage.removeItem('isRegistering');
+        localStorage.removeItem('registrationStartTime');
         throw error;
       }
     } catch (error: any) {
@@ -447,6 +544,14 @@ export default function AuthPage() {
                       <Input id="confirm-password" name="confirm-password" type="password" required />
                     </div>
                   )}
+                  {!isRegistering && (
+                    <div className="flex items-center space-x-2">
+                      <Checkbox id="remember" name="remember" />
+                      <Label htmlFor="remember" className="text-sm font-normal cursor-pointer">
+                        Remember me (Stay logged in for 7 days)
+                      </Label>
+                    </div>
+                  )}
                   <Button type="submit" className="w-full mt-2" disabled={loading}>
                     {loading
                       ? (isRegistering ? "Creating account..." : "Logging in...")
@@ -510,6 +615,14 @@ export default function AuthPage() {
                     <div className="space-y-2">
                       <Label htmlFor="pub-confirm-password">Confirm Password</Label>
                       <Input id="pub-confirm-password" name="pub-confirm-password" type="password" required />
+                    </div>
+                  )}
+                  {!isRegistering && (
+                    <div className="flex items-center space-x-2">
+                      <Checkbox id="pub-remember" name="pub-remember" />
+                      <Label htmlFor="pub-remember" className="text-sm font-normal cursor-pointer">
+                        Remember me (Stay logged in for 7 days)
+                      </Label>
                     </div>
                   )}
                   <Button type="submit" className="w-full mt-2" disabled={loading}>

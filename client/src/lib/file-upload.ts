@@ -274,7 +274,12 @@ export async function fetchModelFiles(modelId: string) {
 /**
  * Check if user has access to model files
  */
-export async function checkFileAccess(modelId: string, userId: string | null): Promise<boolean> {
+export async function checkFileAccess(
+  modelId: string,
+  userId: string | null,
+  userEmail?: string | null,
+  currentRole?: string | null
+): Promise<boolean> {
   // Not logged in - no access
   if (!userId) return false;
 
@@ -291,6 +296,21 @@ export async function checkFileAccess(modelId: string, userId: string | null): P
   }
 
   if (model.publisher_id === userId) return true;
+
+  // Check if user is a collaborator (must be logged in as publisher)
+  if (userEmail && currentRole === 'publisher') {
+    const { data: collaborators, error: collabError } = await supabase
+      .from('collaborators')
+      .select('email')
+      .eq('model_id', modelId)
+      .ilike('email', userEmail);  // Case-insensitive email comparison
+
+    if (collabError) {
+      console.error('Error checking collaborator status:', collabError);
+    } else if (collaborators && collaborators.length > 0) {
+      return true;
+    }
+  }
 
   // Check if user has active subscription
   const { data: subscription, error: subError } = await supabase
@@ -332,13 +352,15 @@ export async function downloadFile(
   filePath: string | null,
   fileName: string,
   modelId: string,
-  userId: string | null
+  userId: string | null,
+  userEmail?: string | null,
+  currentRole?: string | null
 ): Promise<void> {
-  // Check if user has access
-  const hasAccess = await checkFileAccess(modelId, userId);
+  // Check if user has access (includes owner, collaborator, and subscriber checks)
+  const hasAccess = await checkFileAccess(modelId, userId, userEmail, currentRole);
 
   if (!hasAccess) {
-    throw new Error('You must be subscribed to download files from this model.');
+    throw new Error('You must be subscribed or be a collaborator to download files from this model.');
   }
 
   // External URL files don't need signed URL

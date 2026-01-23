@@ -29,6 +29,7 @@ export interface Activity {
   description?: string;
   modelId?: string;
   modelName?: string;
+  role: 'buyer' | 'publisher';
   metadata?: Record<string, any>;
   createdAt: string;
 }
@@ -40,6 +41,7 @@ interface LogActivityParams {
   description?: string;
   modelId?: string;
   modelName?: string;
+  role: 'buyer' | 'publisher';
   metadata?: Record<string, any>;
 }
 
@@ -59,7 +61,8 @@ interface LogActivityParams {
  *   title: 'Subscribed to GPT-4 Vision API',
  *   description: 'Free subscription',
  *   modelId: 'model-123',
- *   modelName: 'GPT-4 Vision API'
+ *   modelName: 'GPT-4 Vision API',
+ *   role: 'buyer'
  * });
  */
 export async function logActivity(params: LogActivityParams): Promise<void> {
@@ -73,6 +76,7 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
         description: params.description,
         model_id: params.modelId,
         model_name: params.modelName,
+        role: params.role,
         metadata: params.metadata,
         created_at: new Date().toISOString()
       });
@@ -86,25 +90,28 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
 }
 
 /**
- * Fetch user activities (with pagination)
+ * Fetch user activities (with pagination and role filtering)
  *
- * Retrieves activities for a specific user, sorted by creation date (newest first).
+ * Retrieves activities for a specific user and role, sorted by creation date (newest first).
+ * Role filtering ensures publisher activities don't show in buyer dashboard and vice versa.
  * Supports pagination via limit and offset parameters.
  *
  * @param userId - The user's ID
+ * @param role - The role to filter by ('buyer' or 'publisher')
  * @param limit - Maximum number of activities to fetch (default: 20)
  * @param offset - Number of activities to skip (default: 0)
  * @returns Promise<Activity[]>
  *
  * @example
- * // Fetch first 20 activities
- * const activities = await fetchUserActivities(user.id);
+ * // Fetch first 20 buyer activities
+ * const activities = await fetchUserActivities(user.id, 'buyer');
  *
  * // Fetch next 20 activities
- * const moreActivities = await fetchUserActivities(user.id, 20, 20);
+ * const moreActivities = await fetchUserActivities(user.id, 'buyer', 20, 20);
  */
 export async function fetchUserActivities(
   userId: string,
+  role: 'buyer' | 'publisher',
   limit: number = 20,
   offset: number = 0
 ): Promise<Activity[]> {
@@ -113,6 +120,7 @@ export async function fetchUserActivities(
       .from('user_activities')
       .select('*')
       .eq('user_id', userId)
+      .eq('role', role)
       .order('created_at', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -127,6 +135,7 @@ export async function fetchUserActivities(
       description: activity.description,
       modelId: activity.model_id,
       modelName: activity.model_name,
+      role: activity.role,
       metadata: activity.metadata,
       createdAt: activity.created_at
     }));
@@ -139,20 +148,23 @@ export async function fetchUserActivities(
 /**
  * Fetch activities by type
  *
- * Retrieves activities of a specific type for a user.
+ * Retrieves activities of a specific type for a user and role.
  * Useful for filtering activities by action (e.g., only subscriptions).
+ * Role filtering ensures publisher activities don't show in buyer dashboard and vice versa.
  *
  * @param userId - The user's ID
+ * @param role - The role to filter by ('buyer' or 'publisher')
  * @param activityType - The type of activity to filter by
  * @param limit - Maximum number of activities to fetch (default: 10)
  * @returns Promise<Activity[]>
  *
  * @example
- * // Fetch last 10 subscription activities
- * const subscriptions = await fetchActivitiesByType(user.id, 'subscribed');
+ * // Fetch last 10 buyer subscription activities
+ * const subscriptions = await fetchActivitiesByType(user.id, 'buyer', 'subscribed');
  */
 export async function fetchActivitiesByType(
   userId: string,
+  role: 'buyer' | 'publisher',
   activityType: ActivityType,
   limit: number = 10
 ): Promise<Activity[]> {
@@ -161,6 +173,7 @@ export async function fetchActivitiesByType(
       .from('user_activities')
       .select('*')
       .eq('user_id', userId)
+      .eq('role', role)
       .eq('activity_type', activityType)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -176,6 +189,7 @@ export async function fetchActivitiesByType(
       description: activity.description,
       modelId: activity.model_id,
       modelName: activity.model_name,
+      role: activity.role,
       metadata: activity.metadata,
       createdAt: activity.created_at
     }));
@@ -218,24 +232,26 @@ export async function cleanupOldActivities(userId: string): Promise<void> {
 }
 
 /**
- * Get total activity count for a user
+ * Get total activity count for a user and role
  *
- * Returns the total number of activities for a user.
+ * Returns the total number of activities for a user filtered by role.
  * Useful for pagination and statistics.
  *
  * @param userId - The user's ID
+ * @param role - The role to filter by ('buyer' or 'publisher')
  * @returns Promise<number>
  *
  * @example
- * const totalActivities = await getActivityCount(user.id);
+ * const totalActivities = await getActivityCount(user.id, 'buyer');
  * const totalPages = Math.ceil(totalActivities / 20);
  */
-export async function getActivityCount(userId: string): Promise<number> {
+export async function getActivityCount(userId: string, role: 'buyer' | 'publisher'): Promise<number> {
   try {
     const { count, error } = await supabase
       .from('user_activities')
       .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId);
+      .eq('user_id', userId)
+      .eq('role', role);
 
     if (error) throw error;
     return count || 0;
@@ -255,24 +271,25 @@ export async function getActivityCount(userId: string): Promise<number> {
  *    import { logActivity } from '@/lib/activity-logger';
  *    ```
  *
- * 2. Call logActivity after successful user actions:
+ * 2. Call logActivity after successful user actions (pass current role):
  *    ```typescript
- *    // After subscription
+ *    // After subscription (buyer role)
  *    await logActivity({
  *      userId: user.id,
  *      activityType: 'subscribed',
  *      title: `Subscribed to ${model.model_name}`,
  *      description: 'Free subscription',
  *      modelId: model.id,
- *      modelName: model.model_name
+ *      modelName: model.model_name,
+ *      role: currentRole // Pass the user's current role
  *    });
  *    ```
  *
- * 3. Fetch activities in components:
+ * 3. Fetch activities in components (filter by current role):
  *    ```typescript
  *    import { fetchUserActivities } from '@/lib/activity-logger';
  *
- *    const activities = await fetchUserActivities(user.id, 20);
+ *    const activities = await fetchUserActivities(user.id, currentRole, 20);
  *    setRecentActivities(activities);
  *    ```
  *

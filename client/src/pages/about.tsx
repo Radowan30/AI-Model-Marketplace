@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout/Layout";
+import { Footer } from "@/components/Footer";
 import { motion } from "framer-motion";
 import { useEffect } from "react";
 import { Target, Eye, Lightbulb, Users, Award, BookOpen } from "lucide-react";
@@ -13,17 +14,20 @@ export default function AboutPage() {
     {
       icon: Lightbulb,
       title: "Innovation",
-      description: "We believe in pushing the boundaries of AI technology and making cutting-edge models accessible to everyone.",
+      description:
+        "We believe in pushing the boundaries of AI technology and making cutting-edge models accessible to everyone.",
     },
     {
       icon: Users,
       title: "Community",
-      description: "We foster a collaborative ecosystem where AI researchers, developers, and businesses can thrive together.",
+      description:
+        "We foster a collaborative ecosystem where AI researchers, developers, and businesses can thrive together.",
     },
     {
       icon: Award,
       title: "Excellence",
-      description: "We strive for excellence in everything we do, from platform performance to customer support.",
+      description:
+        "We strive for excellence in everything we do, from platform performance to customer support.",
     },
   ];
 
@@ -44,7 +48,9 @@ export default function AboutPage() {
               About Our Platform
             </h1>
             <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto leading-relaxed">
-              We're building the future of AI model integration, making powerful artificial intelligence accessible to developers and businesses worldwide.
+              We're building the future of AI model integration, making powerful
+              artificial intelligence accessible to developers and businesses
+              worldwide.
             </p>
           </motion.div>
         </div>
@@ -65,13 +71,20 @@ export default function AboutPage() {
                 <div className="w-14 h-14 rounded-xl bg-primary/20 flex items-center justify-center">
                   <Target className="w-7 h-7 text-primary" />
                 </div>
-                <h2 className="text-3xl md:text-4xl font-heading font-bold">Our Mission</h2>
+                <h2 className="text-3xl md:text-4xl font-heading font-bold">
+                  Our Mission
+                </h2>
               </div>
               <p className="text-lg text-muted-foreground leading-relaxed mb-6">
-                To democratize access to cutting-edge AI models by creating a secure, reliable, and user-friendly marketplace that connects AI researchers with developers and businesses worldwide.
+                To democratize access to cutting-edge AI models by creating a
+                secure, reliable, and user-friendly marketplace that connects AI
+                researchers with developers and businesses worldwide.
               </p>
               <p className="text-lg text-muted-foreground leading-relaxed">
-                We believe that artificial intelligence should be accessible to everyone, not just large corporations with extensive resources. Our platform bridges the gap between AI innovation and practical application.
+                We believe that artificial intelligence should be accessible to
+                everyone, not just large corporations with extensive resources.
+                Our platform bridges the gap between AI innovation and practical
+                application.
               </p>
             </motion.div>
           </div>
@@ -94,7 +107,9 @@ export default function AboutPage() {
                   <Eye className="w-7 h-7 text-white" />
                 </div>
               </div>
-              <h2 className="text-3xl md:text-4xl font-heading font-bold mb-6">Our Vision</h2>
+              <h2 className="text-3xl md:text-4xl font-heading font-bold mb-6">
+                Our Vision
+              </h2>
               <p className="text-xl md:text-2xl text-muted-foreground leading-relaxed">
                 A world where AI innovation drives progress for everyone
               </p>
@@ -114,7 +129,9 @@ export default function AboutPage() {
               transition={{ duration: 0.6 }}
               className="text-center mb-16"
             >
-              <h2 className="text-3xl md:text-4xl font-heading font-bold mb-4">Our Values</h2>
+              <h2 className="text-3xl md:text-4xl font-heading font-bold mb-4">
+                Our Values
+              </h2>
               <p className="text-lg text-muted-foreground">
                 The principles that guide everything we do
               </p>
@@ -133,7 +150,9 @@ export default function AboutPage() {
                   <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-6">
                     <value.icon className="w-6 h-6 text-primary" />
                   </div>
-                  <h3 className="text-xl font-heading font-bold mb-4">{value.title}</h3>
+                  <h3 className="text-xl font-heading font-bold mb-4">
+                    {value.title}
+                  </h3>
                   <p className="text-muted-foreground leading-relaxed">
                     {value.description}
                   </p>
@@ -159,15 +178,23 @@ export default function AboutPage() {
                 <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg">
                   <BookOpen className="w-7 h-7 text-white" />
                 </div>
-                <h2 className="text-3xl md:text-4xl font-heading font-bold">Our Story</h2>
+                <h2 className="text-3xl md:text-4xl font-heading font-bold">
+                  Our Story
+                </h2>
               </div>
 
               <div className="space-y-6 text-lg text-muted-foreground leading-relaxed">
                 <p>
-                  Founded in 2025, our AI marketplace emerged from a simple observation: while AI technology was advancing rapidly, accessing and integrating these innovations remained complex and fragmented.
+                  Founded in 2025, our AI marketplace emerged from a simple
+                  observation: while AI technology was advancing rapidly,
+                  accessing and integrating these innovations remained complex
+                  and fragmented.
                 </p>
                 <p>
-                  Our team of AI researchers and software engineers came together with a shared vision of creating a platform that would make AI models as easy to use as any other software tool.
+                  Our team of AI researchers and software engineers came
+                  together with a shared vision of creating a platform that
+                  would make AI models as easy to use as any other software
+                  tool.
                 </p>
               </div>
 
@@ -189,7 +216,9 @@ export default function AboutPage() {
                     <div className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-purple-600 mb-2">
                       AI First
                     </div>
-                    <div className="text-sm text-muted-foreground">Innovation</div>
+                    <div className="text-sm text-muted-foreground">
+                      Innovation
+                    </div>
                   </div>
                 </div>
               </div>
@@ -197,6 +226,8 @@ export default function AboutPage() {
           </div>
         </div>
       </section>
+      {/* Footer */}
+      <Footer />
     </Layout>
   );
 }

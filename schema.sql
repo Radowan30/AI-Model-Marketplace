@@ -61,11 +61,13 @@ DECLARE
   v_result JSON;
 BEGIN
   -- Step 1: Insert or update user in users table
+  -- For new users: insert with provided name
+  -- For existing users: only update email (if changed), preserve original name
+  -- Names can only be changed by users themselves through settings
   INSERT INTO users (id, name, email)
   VALUES (p_user_id, p_name, p_email)
   ON CONFLICT (id) DO UPDATE
-  SET name = EXCLUDED.name,
-      email = EXCLUDED.email,
+  SET email = EXCLUDED.email,
       updated_at = NOW();
 
   -- Step 2: Get role ID
@@ -322,9 +324,11 @@ CREATE TABLE IF NOT EXISTS "public"."user_activities" (
     "description" "text",
     "model_id" "uuid",
     "model_name" "text",
+    "role" "text" NOT NULL,
     "metadata" "jsonb",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    CONSTRAINT "user_activities_activity_type_check" CHECK (("activity_type" = ANY (ARRAY['subscribed'::"text", 'unsubscribed'::"text", 'downloaded'::"text", 'commented'::"text", 'rated'::"text"])))
+    CONSTRAINT "user_activities_activity_type_check" CHECK (("activity_type" = ANY (ARRAY['subscribed'::"text", 'unsubscribed'::"text", 'downloaded'::"text", 'commented'::"text", 'rated'::"text"]))),
+    CONSTRAINT "user_activities_role_check" CHECK (("role" = ANY (ARRAY['buyer'::"text", 'publisher'::"text"])))
 );
 
 
@@ -546,6 +550,10 @@ CREATE INDEX "idx_user_activities_user_created" ON "public"."user_activities" US
 
 
 CREATE INDEX "idx_user_activities_user_id" ON "public"."user_activities" USING "btree" ("user_id");
+
+
+
+CREATE INDEX "idx_user_activities_user_role_created" ON "public"."user_activities" USING "btree" ("user_id", "role", "created_at" DESC);
 
 
 
@@ -821,11 +829,18 @@ CREATE POLICY "Discussions are public" ON "public"."discussions" FOR SELECT USIN
 
 
 
-CREATE POLICY "Model files are viewable by subscribers and owners" ON "public"."model_files" FOR SELECT USING ((EXISTS ( SELECT 1
+CREATE POLICY "Model files are viewable by subscribers, owners, and collaborators" ON "public"."model_files" FOR SELECT USING ((EXISTS ( SELECT 1
    FROM "public"."models" "m"
-  WHERE (("m"."id" = "model_files"."model_id") AND (("m"."publisher_id" = "auth"."uid"()) OR (EXISTS ( SELECT 1
-           FROM "public"."subscriptions" "s"
-          WHERE (("s"."model_id" = "m"."id") AND ("s"."buyer_id" = "auth"."uid"()) AND ("s"."status" = 'active'::"text")))))))));
+  WHERE (("m"."id" = "model_files"."model_id") AND (
+    ("m"."publisher_id" = "auth"."uid"()) OR
+    (EXISTS ( SELECT 1
+       FROM "public"."subscriptions" "s"
+      WHERE (("s"."model_id" = "m"."id") AND ("s"."buyer_id" = "auth"."uid"()) AND ("s"."status" = 'active'::"text")))) OR
+    (EXISTS ( SELECT 1
+       FROM "public"."collaborators" "c"
+       JOIN "public"."users" "u" ON ("u"."id" = "auth"."uid"())
+      WHERE (("c"."model_id" = "m"."id") AND (LOWER("c"."email") = LOWER("u"."email")))))
+  )))));
 
 
 
@@ -841,9 +856,21 @@ CREATE POLICY "Model owners can add collaborators" ON "public"."collaborators" F
 
 
 
-CREATE POLICY "Model owners can manage files" ON "public"."model_files" USING ((EXISTS ( SELECT 1
-   FROM "public"."models"
-  WHERE (("models"."id" = "model_files"."model_id") AND ("models"."publisher_id" = "auth"."uid"())))));
+CREATE POLICY "Owners and collaborators can manage files" ON "public"."model_files" USING ((
+  EXISTS (
+    SELECT 1 FROM "public"."models" "m"
+    WHERE "m"."id" = "model_files"."model_id"
+    AND (
+      "m"."publisher_id" = "auth"."uid"()
+      OR EXISTS (
+        SELECT 1 FROM "public"."collaborators" "c"
+        JOIN "public"."users" "u" ON ("u"."id" = "auth"."uid"())
+        WHERE "c"."model_id" = "m"."id"
+        AND LOWER("c"."email") = LOWER("u"."email")
+      )
+    )
+  )
+));
 
 
 
@@ -853,13 +880,34 @@ CREATE POLICY "Model owners can remove collaborators" ON "public"."collaborators
 
 
 
-CREATE POLICY "Published models are viewable by everyone" ON "public"."models" FOR SELECT USING ((("status" = 'published'::"text") OR ("publisher_id" = "auth"."uid"())));
+CREATE POLICY "Models viewable by public, owners, and collaborators" ON "public"."models" FOR SELECT USING ((
+  ("status" = 'published'::"text") OR
+  ("publisher_id" = "auth"."uid"()) OR
+  (EXISTS (
+    SELECT 1 FROM "public"."collaborators" "c"
+    JOIN "public"."users" "u" ON ("u"."id" = "auth"."uid"())
+    WHERE "c"."model_id" = "models"."id"
+    AND LOWER("c"."email") = LOWER("u"."email")
+  ))
+));
 
 
 
-CREATE POLICY "Publishers can add categories to their models" ON "public"."model_categories" FOR INSERT TO "authenticated" WITH CHECK ((EXISTS ( SELECT 1
-   FROM "public"."models"
-  WHERE (("models"."id" = "model_categories"."model_id") AND ("models"."publisher_id" = "auth"."uid"())))));
+CREATE POLICY "Owners and collaborators can add categories" ON "public"."model_categories" FOR INSERT TO "authenticated" WITH CHECK ((
+  EXISTS (
+    SELECT 1 FROM "public"."models" "m"
+    WHERE "m"."id" = "model_categories"."model_id"
+    AND (
+      "m"."publisher_id" = "auth"."uid"()
+      OR EXISTS (
+        SELECT 1 FROM "public"."collaborators" "c"
+        JOIN "public"."users" "u" ON ("u"."id" = "auth"."uid"())
+        WHERE "c"."model_id" = "m"."id"
+        AND LOWER("c"."email") = LOWER("u"."email")
+      )
+    )
+  )
+));
 
 
 
@@ -880,13 +928,33 @@ CREATE POLICY "Publishers can delete own models" ON "public"."models" FOR DELETE
 
 
 
-CREATE POLICY "Publishers can remove categories from their models" ON "public"."model_categories" FOR DELETE TO "authenticated" USING ((EXISTS ( SELECT 1
-   FROM "public"."models"
-  WHERE (("models"."id" = "model_categories"."model_id") AND ("models"."publisher_id" = "auth"."uid"())))));
+CREATE POLICY "Owners and collaborators can remove categories" ON "public"."model_categories" FOR DELETE TO "authenticated" USING ((
+  EXISTS (
+    SELECT 1 FROM "public"."models" "m"
+    WHERE "m"."id" = "model_categories"."model_id"
+    AND (
+      "m"."publisher_id" = "auth"."uid"()
+      OR EXISTS (
+        SELECT 1 FROM "public"."collaborators" "c"
+        JOIN "public"."users" "u" ON ("u"."id" = "auth"."uid"())
+        WHERE "c"."model_id" = "m"."id"
+        AND LOWER("c"."email") = LOWER("u"."email")
+      )
+    )
+  )
+));
 
 
 
-CREATE POLICY "Publishers can update own models" ON "public"."models" FOR UPDATE USING (("publisher_id" = "auth"."uid"()));
+CREATE POLICY "Owners and collaborators can update models" ON "public"."models" FOR UPDATE USING ((
+  ("publisher_id" = "auth"."uid"()) OR
+  (EXISTS (
+    SELECT 1 FROM "public"."collaborators" "c"
+    JOIN "public"."users" "u" ON ("u"."id" = "auth"."uid"())
+    WHERE "c"."model_id" = "models"."id"
+    AND LOWER("c"."email") = LOWER("u"."email")
+  ))
+));
 
 
 

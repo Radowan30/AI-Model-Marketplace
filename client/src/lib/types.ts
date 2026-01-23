@@ -29,6 +29,11 @@ export interface Category {
   is_custom: boolean;
 }
 
+export interface Collaborator {
+  name: string;
+  email: string;
+}
+
 export interface Model {
   id: string;
   name: string;
@@ -53,7 +58,7 @@ export interface Model {
   features: string[];
   updatedAt: string;
   publishedDate: string;
-  collaborators?: string[]; // Array of collaborator emails
+  collaborators?: Collaborator[]; // Array of collaborators with name and email
   apiDocumentation?: string; // API docs in markdown, JSON, or plain text
   apiSpecFormat?: "json" | "yaml" | "markdown" | "text"; // Format of API specification
   pageViews30Days: number;

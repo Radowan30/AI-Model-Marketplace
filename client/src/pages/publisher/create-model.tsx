@@ -17,7 +17,7 @@ import { ArrowLeft, ArrowRight, Check, Upload, FileText, Code, Users, X, Plus, I
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { uploadFileWithProgress, saveExternalUrl, validateFile, formatFileSize, MAX_FILE_SIZE } from "@/lib/file-upload";
-import { createModel } from "@/lib/api";
+import { createModel, insertCollaborators } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { Progress } from "@/components/ui/progress";
 import { ApiSpecRenderer } from "@/components/ApiSpecRenderer";
@@ -43,8 +43,7 @@ interface Category {
 
 interface Collaborator {
   email: string;
-  firstName: string;
-  lastName: string;
+  name: string;
   role?: string;
 }
 
@@ -119,8 +118,7 @@ export default function CreateModelPage() {
 
   // Tab 4: Collaborators state
   const [collabEmail, setCollabEmail] = useState("");
-  const [collabFirstName, setCollabFirstName] = useState("");
-  const [collabLastName, setCollabLastName] = useState("");
+  const [collabName, setCollabName] = useState("");
   const [selectedPublisher, setSelectedPublisher] = useState("");
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
 
@@ -456,6 +454,23 @@ export default function CreateModelPage() {
         }
       }
 
+      // Step 2.5: Save collaborators to database
+      if (collaborators.length > 0) {
+        try {
+          await insertCollaborators(createdModel.id, collaborators.map(c => ({
+            name: c.name,
+            email: c.email
+          })));
+        } catch (collabError: any) {
+          console.error('Error saving collaborators:', collabError);
+          toast({
+            title: "Warning",
+            description: "Model created but collaborators could not be saved.",
+            variant: "destructive",
+          });
+        }
+      }
+
       // Step 3: Upload files
       for (let i = 0; i < files.length; i++) {
         const fileEntry = files[i];
@@ -634,7 +649,7 @@ export default function CreateModelPage() {
 
   // Tab 4: Add collaborator by email handler
   const handleAddCollaborator = () => {
-    if (!collabEmail.trim() || !collabFirstName.trim() || !collabLastName.trim()) {
+    if (!collabEmail.trim() || !collabName.trim()) {
       toast({
         title: "Validation Error",
         description: "All fields are required to add a collaborator.",
@@ -654,10 +669,19 @@ export default function CreateModelPage() {
       return;
     }
 
+    // Check if already added
+    if (collaborators.some(c => c.email === collabEmail)) {
+      toast({
+        title: "Already Added",
+        description: "This collaborator is already in the list.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     const newCollab: Collaborator = {
       email: collabEmail,
-      firstName: collabFirstName,
-      lastName: collabLastName,
+      name: collabName,
       role: 'Collaborator',
     };
 
@@ -665,8 +689,7 @@ export default function CreateModelPage() {
 
     // Clear form
     setCollabEmail("");
-    setCollabFirstName("");
-    setCollabLastName("");
+    setCollabName("");
   };
 
   // Tab 4: Add existing publisher handler
@@ -686,11 +709,9 @@ export default function CreateModelPage() {
       return;
     }
 
-    const [firstName, ...lastNameParts] = publisher.name.split(' ');
     const newCollab: Collaborator = {
       email: publisher.email,
-      firstName: firstName,
-      lastName: lastNameParts.join(' '),
+      name: publisher.name,
       role: 'Publisher',
     };
 
@@ -1342,11 +1363,11 @@ export default function CreateModelPage() {
                           {collaborators.map((collab, index) => (
                             <div key={index} className="flex items-center gap-3 mb-3">
                               <div className="w-8 h-8 rounded-full bg-secondary text-foreground flex items-center justify-center text-xs font-bold shrink-0">
-                                {getInitials(`${collab.firstName} ${collab.lastName}`)}
+                                {getInitials(collab.name)}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <p className="text-sm font-medium truncate">
-                                  {collab.firstName} {collab.lastName}
+                                  {collab.name}
                                 </p>
                                 <p className="text-xs text-muted-foreground truncate">{collab.email}</p>
                                 <p className="text-xs text-muted-foreground">{collab.role}</p>
@@ -1376,23 +1397,13 @@ export default function CreateModelPage() {
                         <div className="space-y-4 border rounded-lg p-4">
                           <h4 className="font-medium">Add by Email</h4>
 
-                          <div className="grid md:grid-cols-2 gap-3">
-                            <div className="space-y-2">
-                              <Label>First Name <span className="text-destructive">*</span></Label>
-                              <Input
-                                placeholder="John"
-                                value={collabFirstName}
-                                onChange={(e) => setCollabFirstName(e.target.value)}
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Last Name <span className="text-destructive">*</span></Label>
-                              <Input
-                                placeholder="Doe"
-                                value={collabLastName}
-                                onChange={(e) => setCollabLastName(e.target.value)}
-                              />
-                            </div>
+                          <div className="space-y-2">
+                            <Label>Full Name <span className="text-destructive">*</span></Label>
+                            <Input
+                              placeholder="John Doe"
+                              value={collabName}
+                              onChange={(e) => setCollabName(e.target.value)}
+                            />
                           </div>
 
                           <div className="space-y-2">
