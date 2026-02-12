@@ -40,9 +40,9 @@ export function useIdleTimeout({
   const [isWarning, setIsWarning] = useState(false);
   const [remainingTime, setRemainingTime] = useState(timeout);
 
-  const timeoutRef = useRef<NodeJS.Timeout>();
-  const warningTimeoutRef = useRef<NodeJS.Timeout>();
-  const intervalRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const warningTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const lastActivityRef = useRef<number>(Date.now());
 
   const clearTimers = useCallback(() => {

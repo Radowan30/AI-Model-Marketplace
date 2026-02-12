@@ -4,25 +4,6 @@
 import { supabase } from './supabase';
 
 /**
- * Calculate engagement rate
- */
-export function calculateEngagementRate(subscribers: number, views: number): string {
-  if (views === 0) return '0.00';
-  return ((subscribers / views) * 100).toFixed(2);
-}
-
-/**
- * Get week number from date
- */
-function getWeekNumber(date: Date): number {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
-}
-
-/**
  * Get start of week from date
  */
 function getWeekStart(date: Date): Date {
@@ -135,13 +116,11 @@ export async function getCategoryDistribution(publisherId: string): Promise<{ na
   }
 
   // Combine owned and collaborating model IDs
-  const allModelIds = [...new Set([...ownedModelIds, ...collaboratingModelIds])];
+  const allModelIds = Array.from(new Set([...ownedModelIds, ...collaboratingModelIds]));
 
   if (allModelIds.length === 0) {
     return [];
   }
-
-  const modelIds = allModelIds;
 
   // Fetch categories for these models
   const { data: modelCategories, error: categoriesError } = await supabase
@@ -152,7 +131,7 @@ export async function getCategoryDistribution(publisherId: string): Promise<{ na
         name
       )
     `)
-    .in('model_id', modelIds);
+    .in('model_id', allModelIds);
 
   if (categoriesError) {
     console.error('Error fetching category distribution:', categoriesError);
@@ -242,7 +221,6 @@ export async function fetchPublisherAnalytics(publisherId: string) {
         totalViews: 0,
         totalSubscribers: 0,
         totalModels: 0,
-        engagementRate: '0.00',
         categoryDistribution: [],
         weeklyViews: [],
         models: []
@@ -345,7 +323,6 @@ export async function fetchPublisherAnalytics(publisherId: string) {
       totalViews,
       totalSubscribers: totalSubscribers || 0,
       totalModels: models.length,
-      engagementRate: calculateEngagementRate(totalSubscribers || 0, totalViews),
       categoryDistribution: categoryDist,
       weeklyViews: weeklyViews,
       models: modelsWithStats
@@ -399,94 +376,3 @@ export async function fetchModelWeeklyViews(modelId: string): Promise<{ week: st
   }
 }
 
-/**
- * Fetch analytics for a specific model
- */
-export async function fetchModelAnalytics(modelId: string) {
-  try {
-    // Fetch model details
-    const { data: model, error: modelError } = await supabase
-      .from('models')
-      .select('*')
-      .eq('id', modelId)
-      .single();
-
-    if (modelError) throw modelError;
-
-    // Fetch all views for this model (for total views)
-    const { data: allViews, error: allViewsError } = await supabase
-      .from('views')
-      .select('*')
-      .eq('model_id', modelId);
-
-    if (allViewsError) {
-      console.error('Error fetching all model views:', allViewsError);
-    }
-
-    // Fetch total subscribers for this model
-    const { count: totalSubscribers, error: subsError } = await supabase
-      .from('subscriptions')
-      .select('*', { count: 'exact', head: true })
-      .eq('model_id', modelId);
-
-    if (subsError) {
-      console.error('Error fetching model subscribers:', subsError);
-    }
-
-    // Fetch views for this model (last 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    const { data: views, error: viewsError } = await supabase
-      .from('views')
-      .select('*')
-      .eq('model_id', modelId)
-      .gte('timestamp', thirtyDaysAgo.toISOString());
-
-    if (viewsError) {
-      console.error('Error fetching model views:', viewsError);
-    }
-
-    // Aggregate by day for the last 30 days
-    const dailyViews = views ? aggregateDailyViews(views) : [];
-
-    // Calculate totals from actual source tables
-    const totalViews = allViews?.length || 0;
-
-    return {
-      totalViews,
-      totalSubscribers: totalSubscribers || 0,
-      engagementRate: calculateEngagementRate(totalSubscribers || 0, totalViews),
-      dailyViews: dailyViews,
-      views30Days: views?.length || 0
-    };
-  } catch (error) {
-    console.error('Error fetching model analytics:', error);
-    throw error;
-  }
-}
-
-/**
- * Aggregate views by day
- */
-function aggregateDailyViews(views: any[]): { date: string; views: number }[] {
-  const days: { [key: string]: number } = {};
-
-  views.forEach(view => {
-    const date = new Date(view.timestamp);
-    const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
-
-    if (!days[dateKey]) {
-      days[dateKey] = 0;
-    }
-    days[dateKey]++;
-  });
-
-  // Convert to array and sort by date
-  return Object.entries(days)
-    .map(([date, viewCount]) => ({
-      date,
-      views: viewCount
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date));
-}

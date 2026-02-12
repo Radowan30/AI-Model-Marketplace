@@ -8,8 +8,6 @@ import {
   ArrowRight,
   Box,
   Cpu,
-  ShieldCheck,
-  Users,
   Store,
   Download,
   Network,

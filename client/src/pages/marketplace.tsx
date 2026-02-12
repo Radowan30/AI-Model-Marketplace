@@ -9,22 +9,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
-import {
-  Search,
-  Filter,
-  AlertCircle,
-  CheckCircle,
-  Loader2,
-  ChevronDown,
-  X,
-} from "lucide-react";
+import { Search, AlertCircle, Loader2, ChevronDown } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Popover,
   PopoverContent,
@@ -43,26 +33,25 @@ export default function MarketplacePage() {
   const [subscriptionTypeFilter, setSubscriptionTypeFilter] = useState<
     "all" | "free" | "paid"
   >("all");
-  const [location] = useLocation();
   const { user, userProfile, currentRole } = useAuth();
   const [models, setModels] = useState<Model[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Store collaborating model IDs from direct query (bypasses RLS issues with join)
+  // IDs of models the current user collaborates on (fetched separately due to database permission rules)
   const [collaboratingModelIds, setCollaboratingModelIds] = useState<string[]>(
     [],
   );
 
-  // Fetch models, categories, and subscriptions from database
+  // Load all marketplace data when the page mounts (or when user changes)
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        // Fetch all categories
+        // 1. Get categories for the filter dropdown (standard categories first, then custom)
         const { data: categoriesData, error: categoriesError } = await supabase
           .from("categories")
           .select("id, name, is_custom")
@@ -72,11 +61,11 @@ export default function MarketplacePage() {
         if (categoriesError) throw categoriesError;
         setCategories(categoriesData || []);
 
-        // Fetch published models with their categories and publisher info
+        // 2. Get all published models to display in the grid
         const modelsData = await fetchPublishedModels();
         setModels(modelsData);
 
-        // Fetch user's subscriptions if logged in
+        // 3. Get the current user's subscriptions so we can show "Subscribed" badges
         if (user) {
           const { data: subsData, error: subsError } = await supabase
             .from("subscriptions")
@@ -97,10 +86,10 @@ export default function MarketplacePage() {
     fetchData();
   }, [user]);
 
-  // Fetch collaborating model IDs directly from collaborators table
-  // This bypasses RLS issues with the model.collaborators join
+  // For publishers: find which models they collaborate on (separate query for permission reasons)
   useEffect(() => {
     const fetchCollaboratingModels = async () => {
+      // Only relevant for publishers — buyers don't need collaboration data
       if (!user || currentRole !== "publisher") {
         setCollaboratingModelIds([]);
         return;
@@ -145,43 +134,41 @@ export default function MarketplacePage() {
     fetchCollaboratingModels();
   }, [user, userProfile, currentRole]);
 
-  // Determine if we are in preview mode based on actual user role (not URL parameter)
-  // Publishers see preview mode (can't subscribe to models)
-  // Buyers see action mode (can subscribe to models)
+  // Publishers can only browse (preview only), buyers can subscribe
   const isPublisher = currentRole === "publisher";
   const isPreview = isPublisher;
 
-  // Get user's subscribed model IDs (for buyers)
+  // Build a list of model IDs the buyer is already subscribed to (for "Subscribed" badges)
   const subscribedModelIds = !isPublisher
     ? subscriptions
         .filter((sub) => sub.status === "active")
         .map((sub) => sub.model_id)
     : [];
 
-  // Get publisher's own model IDs (for publishers)
-  const myModelIds = isPublisher
-    ? models
-        .filter((model) => model.publisherId === user?.id)
-        .map((model) => model.id)
-    : [];
-
+  // Apply all active filters to the models list
+  // A model must pass ALL filters to be shown (AND logic)
   const filteredModels = models.filter((model) => {
+    // Search filter: match against name or description (case-insensitive)
     const matchesSearch =
       model.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      model.description?.toLowerCase().includes(searchTerm.toLowerCase());
-    // Check if any of the model's categories match any of the selected filters
+      model.shortDescription
+        ?.toLowerCase()
+        .includes(searchTerm.toLowerCase()) ||
+      model.detailedDescription
+        ?.toLowerCase()
+        .includes(searchTerm.toLowerCase());
+
+    // Category filter: no selection = show all, otherwise match at least one selected category
     const matchesCategory =
       categoryFilter.length === 0 ||
       (model.categories &&
         model.categories.some((cat: any) => categoryFilter.includes(cat.id)));
     const isPublished = model.status === "published";
 
-    // Model type filtering (for publishers only)
+    // Ownership filter (publishers only): own models vs collaborating models
     let matchesTypeFilter = true;
     if (isPublisher) {
       const isOwnModel = model.publisherId === user?.id;
-      // Use collaboratingModelIds state (from direct query) instead of model.collaborators
-      // This bypasses RLS issues with the model.collaborators join
       const isCollaborating = collaboratingModelIds.includes(model.id);
 
       if (modelTypeFilter === "own") {
@@ -189,10 +176,9 @@ export default function MarketplacePage() {
       } else if (modelTypeFilter === "collaborating") {
         matchesTypeFilter = isCollaborating && !isOwnModel;
       }
-      // "all" shows everything, no filter needed
     }
 
-    // Subscription type filtering (free/paid)
+    // Price filter: free vs paid
     let matchesSubscriptionType = true;
     if (subscriptionTypeFilter === "free") {
       matchesSubscriptionType = model.price === "free";
@@ -219,6 +205,7 @@ export default function MarketplacePage() {
           </p>
         </div>
 
+        {/* Banner shown to publishers: they can browse but not subscribe */}
         {isPreview && (
           <Alert className="bg-primary/5 border-primary/20 text-primary">
             <AlertCircle className="h-4 w-4" />
@@ -230,7 +217,7 @@ export default function MarketplacePage() {
           </Alert>
         )}
 
-        {/* Filters */}
+        {/* Filter Controls: search, price, ownership (publishers only), and category */}
         <div className="flex flex-col gap-4 bg-card p-4 rounded-lg border border-border shadow-sm">
           <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
             <div className="relative w-full md:w-96">
@@ -244,7 +231,7 @@ export default function MarketplacePage() {
             </div>
 
             <div className="flex items-center gap-2 w-full md:w-auto">
-              {/* Subscription Type Filter (Free/Paid) */}
+              {/* Price filter dropdown */}
               <Select
                 value={subscriptionTypeFilter}
                 onValueChange={(value: "all" | "free" | "paid") =>
@@ -261,7 +248,7 @@ export default function MarketplacePage() {
                 </SelectContent>
               </Select>
 
-              {/* Model Type Filter (for publishers only) */}
+              {/* Ownership filter — only visible to publishers */}
               {isPublisher && (
                 <Select
                   value={modelTypeFilter}
@@ -282,7 +269,7 @@ export default function MarketplacePage() {
                 </Select>
               )}
 
-              {/* Category Filter */}
+              {/* Category multi-select dropdown (button text updates based on selection) */}
               <Popover>
                 <PopoverTrigger asChild>
                   <button className="flex h-9 w-[200px] items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring">
@@ -355,7 +342,7 @@ export default function MarketplacePage() {
           </div>
         </div>
 
-        {/* Error State */}
+        {/* Show error alert if data fetching failed */}
         {error && (
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
@@ -364,7 +351,7 @@ export default function MarketplacePage() {
           </Alert>
         )}
 
-        {/* Loading State */}
+        {/* Show spinner while loading, then either the model grid or empty state */}
         {loading ? (
           <div className="min-h-[60vh] flex flex-col items-center justify-center">
             <Loader2 className="w-12 h-12 animate-spin text-primary mb-4 [stroke-width:1.5]" />
@@ -372,7 +359,7 @@ export default function MarketplacePage() {
           </div>
         ) : (
           <>
-            {/* Grid */}
+            {/* Responsive model card grid (1 col → 2 col → 3 col as screen grows) */}
             {filteredModels.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredModels.map((model) => (

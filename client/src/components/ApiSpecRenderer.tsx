@@ -60,23 +60,24 @@ export function ApiSpecRenderer({ content, format, className = "" }: ApiSpecRend
               <ReactMarkdown
                 components={{
                   // Customize code blocks within markdown
-                  code({ node, inline, className, children, ...props }) {
+                  code(props) {
+                    const { children, className, ...rest } = props;
                     const match = /language-(\w+)/.exec(className || "");
-                    return !inline && match ? (
+                    const isInline = !match;
+                    return !isInline && match ? (
                       <SyntaxHighlighter
-                        style={vscDarkPlus}
+                        style={vscDarkPlus as any}
                         language={match[1]}
                         PreTag="div"
                         customStyle={{
                           fontSize: "0.875rem",
                           borderRadius: "0.375rem",
                         }}
-                        {...props}
                       >
                         {String(children).replace(/\n$/, "")}
                       </SyntaxHighlighter>
                     ) : (
-                      <code className={className} {...props}>
+                      <code className={className} {...rest}>
                         {children}
                       </code>
                     );

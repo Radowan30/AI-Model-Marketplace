@@ -16,11 +16,12 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, ArrowRight, Check, Upload, FileText, Code, Users, X, Plus, Info, Trash2, Loader2, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
-import { uploadFileWithProgress, saveExternalUrl, validateFile, formatFileSize, MAX_FILE_SIZE } from "@/lib/file-upload";
+import { uploadFileWithProgress, saveExternalUrl, validateFile, formatFileSize } from "@/lib/file-upload";
 import { createModel, insertCollaborators } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { Progress } from "@/components/ui/progress";
 import { ApiSpecRenderer } from "@/components/ApiSpecRenderer";
+import { Category } from "@/lib/types";
 
 const STEPS = [
   { id: 1, title: "General Info", icon: FileText },
@@ -33,12 +34,6 @@ interface Publisher {
   id: string;
   name: string;
   email: string;
-}
-
-interface Category {
-  id: string;
-  name: string;
-  is_custom: boolean;
 }
 
 interface Collaborator {
@@ -113,7 +108,6 @@ export default function CreateModelPage() {
   const [fileDescription, setFileDescription] = useState("");
   const [files, setFiles] = useState<FileEntry[]>([]);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadingFile, setUploadingFile] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
   // Tab 4: Collaborators state
@@ -641,9 +635,7 @@ export default function CreateModelPage() {
       }
 
       setSelectedFile(file);
-      if (!fileName) {
-        setFileName(file.name);
-      }
+      setFileName(file.name);
     }
   };
 
@@ -1037,6 +1029,7 @@ export default function CreateModelPage() {
                              placeholder="e.g., 1000.00"
                              value={price}
                              onChange={(e) => setPrice(e.target.value)}
+                             onWheel={(e) => e.currentTarget.blur()}
                              min="0"
                              step="0.01"
                            />
@@ -1221,36 +1214,43 @@ export default function CreateModelPage() {
                           <label
                             htmlFor="file-upload"
                             className={cn(
-                              "border-2 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-center transition-all cursor-pointer block",
+                              "border-2 border-dashed rounded-lg p-12 min-h-[200px] flex flex-col items-center justify-center text-center transition-all cursor-pointer",
                               isDragging
-                                ? "border-primary bg-primary/10 scale-105"
-                                : "border-border hover:bg-secondary/20"
+                                ? "border-primary/50 bg-primary/20 shadow-lg"
+                                : "border-border hover:border-primary/30 hover:bg-secondary/30"
                             )}
                             onDragEnter={handleDragEnter}
                             onDragOver={handleDragOver}
                             onDragLeave={handleDragLeave}
                             onDrop={handleDrop}
                           >
-                            <Upload className={cn(
-                              "w-8 h-8 mb-2 transition-colors",
-                              isDragging ? "text-primary" : "text-muted-foreground"
-                            )} />
-                            <p className={cn(
-                              "text-sm transition-colors",
-                              isDragging ? "text-primary font-medium" : "text-muted-foreground"
-                            )}>
-                              {isDragging
-                                ? "Drop file here..."
-                                : selectedFile
-                                ? selectedFile.name
-                                : "Drag & drop or click to browse (max 50MB)"
-                              }
-                            </p>
-                            {selectedFile && !isDragging && (
-                              <p className="text-xs text-primary mt-2">
-                                {formatFileSize(selectedFile.size)}
+                            <div className="pointer-events-none flex flex-col items-center">
+                              <Upload className={cn(
+                                "w-12 h-12 mb-4 transition-all",
+                                isDragging ? "text-primary animate-bounce" : "text-muted-foreground"
+                              )} />
+                              <p className={cn(
+                                "text-base font-medium transition-colors mb-1",
+                                isDragging ? "text-primary" : "text-foreground"
+                              )}>
+                                {isDragging
+                                  ? "Drop file here..."
+                                  : selectedFile
+                                  ? selectedFile.name
+                                  : "Drag & drop or click to browse"
+                                }
                               </p>
-                            )}
+                              {!selectedFile && !isDragging && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Maximum file size: 50MB
+                                </p>
+                              )}
+                              {selectedFile && !isDragging && (
+                                <p className="text-sm text-primary mt-2 font-medium">
+                                  {formatFileSize(selectedFile.size)}
+                                </p>
+                              )}
+                            </div>
                           </label>
                         </div>
                       ) : (
@@ -1275,7 +1275,7 @@ export default function CreateModelPage() {
                       </div>
 
                       <Button type="button" onClick={handleAddFile} className="w-full gap-2">
-                        <Plus className="w-4 h-4" /> Add File
+                        <Plus className="w-4 h-4" /> {fileType === 'url' ? 'Add URL' : 'Add File'}
                       </Button>
                     </div>
 

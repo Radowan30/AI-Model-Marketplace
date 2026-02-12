@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Link } from "wouter";
-import { Search, CheckCircle, Clock, XCircle, ShoppingBag, ChevronDown, X } from "lucide-react";
+import { Search, CheckCircle, XCircle, ShoppingBag, ChevronDown, X, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { logActivity } from "@/lib/activity-logger";
@@ -31,6 +31,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import type { Category } from "@/lib/types";
 
 export default function MySubscriptionsPage() {
   const [searchTerm, setSearchTerm] = useState("");
@@ -167,7 +168,7 @@ export default function MySubscriptionsPage() {
     };
 
     loadSubscriptions();
-  }, [user]);
+  }, [user, toast]);
 
   // Open cancel dialog
   const handleCancelClick = (subscriptionId: string, modelName: string) => {
@@ -242,7 +243,7 @@ export default function MySubscriptionsPage() {
   const categoriesMap = new Map();
   subscribedModels.forEach((sm) => {
     if (sm?.model?.categories) {
-      sm.model.categories.forEach((cat) => {
+      sm.model.categories.forEach((cat: Category) => {
         if (!categoriesMap.has(cat.id)) {
           categoriesMap.set(cat.id, cat);
         }
@@ -268,7 +269,7 @@ export default function MySubscriptionsPage() {
     // Category filter (multi-select)
     const matchesCategory =
       categoryFilter.length === 0 ||
-      sub.model.categories.some((cat) => categoryFilter.includes(cat.id));
+      sub.model.categories.some((cat: Category) => categoryFilter.includes(cat.id));
 
     return matchesStatus && matchesSearch && matchesCategory;
   });
@@ -408,8 +409,15 @@ export default function MySubscriptionsPage() {
           </Popover>
         </div>
 
+        {/* Loading State */}
+        {loading && (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        )}
+
         {/* Active Subscriptions Section */}
-        {filteredActiveSubscriptions.length > 0 && (
+        {!loading && filteredActiveSubscriptions.length > 0 && (
           <div className="space-y-4">
             <h2 className="text-2xl font-bold">Active Subscriptions</h2>
             {filteredActiveSubscriptions.map((sub) => {
@@ -439,7 +447,7 @@ export default function MySubscriptionsPage() {
                             {sub.startDate}
                           </p>
                           <div className="flex flex-wrap gap-2 text-xs">
-                            {model.categories.slice(0, 2).map((cat) => (
+                            {model.categories.slice(0, 2).map((cat: Category) => (
                               <Badge
                                 key={cat.id}
                                 variant="outline"
@@ -481,13 +489,13 @@ export default function MySubscriptionsPage() {
         )}
 
         {/* Separator between sections */}
-        {filteredActiveSubscriptions.length > 0 &&
+        {!loading && filteredActiveSubscriptions.length > 0 &&
           filteredPreviousSubscriptions.length > 0 && (
             <Separator className="my-8" />
           )}
 
         {/* Previous Subscriptions Section */}
-        {filteredPreviousSubscriptions.length > 0 && (
+        {!loading && filteredPreviousSubscriptions.length > 0 && (
           <div className="space-y-4">
             <h2 className="text-2xl font-bold">Previous Subscriptions</h2>
             {filteredPreviousSubscriptions.map((sub) => {
@@ -515,7 +523,7 @@ export default function MySubscriptionsPage() {
                             ` • Cancelled on ${sub.cancelledDate}`}
                         </p>
                         <div className="flex flex-wrap gap-2 text-xs">
-                          {model.categories.slice(0, 2).map((cat) => (
+                          {model.categories.slice(0, 2).map((cat: Category) => (
                             <Badge
                               key={cat.id}
                               variant="outline"
@@ -533,12 +541,6 @@ export default function MySubscriptionsPage() {
                             variant="outline"
                             className="font-normal whitespace-nowrap"
                           >
-                            License: Standard Commercial
-                          </Badge>
-                          <Badge
-                            variant="outline"
-                            className="font-normal whitespace-nowrap"
-                          >
                             Version: {model.version}
                           </Badge>
                         </div>
@@ -552,7 +554,7 @@ export default function MySubscriptionsPage() {
         )}
 
         {/* Empty State */}
-        {filteredActiveSubscriptions.length === 0 &&
+        {!loading && filteredActiveSubscriptions.length === 0 &&
           filteredPreviousSubscriptions.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 bg-secondary/20 rounded-lg border border-dashed border-border">
               <ShoppingBag className="w-16 h-16 text-muted-foreground mb-4" />

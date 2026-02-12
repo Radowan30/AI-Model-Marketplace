@@ -9,7 +9,7 @@ export function useNotifications() {
   // Initialize with empty array, will be populated from database
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  // Fetch notifications from database
+  // Fetch notifications from database and subscribe to realtime updates
   useEffect(() => {
     const loadNotifications = async () => {
       if (!user?.id) return;
@@ -27,12 +27,14 @@ export function useNotifications() {
         const transformed = data?.map(n => ({
           id: n.id,
           userId: n.user_id,
-          type: n.type,
+          type: n.notification_type,
           title: n.title,
           message: n.message,
           createdAt: n.created_at,
           isRead: n.is_read,
-          modelId: n.model_id,
+          relatedModelId: n.related_model_id,
+          relatedModelName: n.related_model_name,
+          relatedDiscussionId: n.related_discussion_id,
           metadata: n.metadata
         })) || [];
 
@@ -43,62 +45,114 @@ export function useNotifications() {
     };
 
     loadNotifications();
+
+    // Subscribe to realtime updates
+    if (user?.id) {
+      const channel = supabase
+        .channel('notifications-changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'notifications',
+            filter: `user_id=eq.${user.id}`,
+          },
+          (payload) => {
+            console.log('Notification change:', payload);
+
+            if (payload.eventType === 'INSERT') {
+              const newNotif = payload.new;
+              setNotifications((prev) => [{
+                id: newNotif.id,
+                userId: newNotif.user_id,
+                type: newNotif.notification_type,
+                title: newNotif.title,
+                message: newNotif.message,
+                createdAt: newNotif.created_at,
+                isRead: newNotif.is_read,
+                relatedModelId: newNotif.related_model_id,
+                relatedModelName: newNotif.related_model_name,
+                relatedDiscussionId: newNotif.related_discussion_id,
+                metadata: newNotif.metadata
+              }, ...prev]);
+            } else if (payload.eventType === 'UPDATE') {
+              const updatedNotif = payload.new;
+              setNotifications((prev) =>
+                prev.map((n) =>
+                  n.id === updatedNotif.id
+                    ? {
+                        ...n,
+                        isRead: updatedNotif.is_read,
+                      }
+                    : n
+                )
+              );
+            } else if (payload.eventType === 'DELETE') {
+              setNotifications((prev) =>
+                prev.filter((n) => n.id !== payload.old.id)
+              );
+            }
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    }
   }, [user]);
 
   // Calculate unread count
   const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   // Mark a single notification as read
-  const markAsRead = useCallback((notificationId: string) => {
-    setNotifications((prev) =>
-      prev.map((notification) =>
-        notification.id === notificationId
-          ? { ...notification, isRead: true }
-          : notification
-      )
-    );
+  const markAsRead = useCallback(async (notificationId: string) => {
+    try {
+      // Update in database
+      await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', notificationId);
+
+      // Update local state
+      setNotifications((prev) =>
+        prev.map((notification) =>
+          notification.id === notificationId
+            ? { ...notification, isRead: true }
+            : notification
+        )
+      );
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
   }, []);
 
   // Mark all notifications as read
-  const markAllAsRead = useCallback(() => {
-    setNotifications((prev) =>
-      prev.map((notification) => ({ ...notification, isRead: true }))
-    );
-  }, []);
+  const markAllAsRead = useCallback(async () => {
+    if (!user?.id) return;
 
-  // Add a new notification (for future use when implementing triggers)
-  const addNotification = useCallback((notification: Notification) => {
-    setNotifications((prev) => [notification, ...prev]);
-  }, []);
+    try {
+      // Update all in database
+      await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false);
 
-  // Remove a notification
-  const removeNotification = useCallback((notificationId: string) => {
-    setNotifications((prev) =>
-      prev.filter((notification) => notification.id !== notificationId)
-    );
-  }, []);
-
-  // Get notifications by type
-  const getNotificationsByType = useCallback(
-    (type: Notification["type"]) => {
-      return notifications.filter((n) => n.type === type);
-    },
-    [notifications]
-  );
-
-  // Get unread notifications
-  const getUnreadNotifications = useCallback(() => {
-    return notifications.filter((n) => !n.isRead);
-  }, [notifications]);
+      // Update local state
+      setNotifications((prev) =>
+        prev.map((notification) => ({ ...notification, isRead: true }))
+      );
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
+  }, [user]);
 
   return {
     notifications,
     unreadCount,
     markAsRead,
     markAllAsRead,
-    addNotification,
-    removeNotification,
-    getNotificationsByType,
-    getUnreadNotifications,
   };
 }

@@ -1,73 +1,77 @@
-# MIMOS AI Model Marketplace
+# 🤖 AI Model Marketplace
 
-A modern marketplace platform where AI model publishers can upload and manage their models, and buyers can browse, subscribe to, and download models. Built for MIMOS to facilitate AI model sharing and collaboration.
+A comprehensive platform for publishing, discovering, and subscribing to AI models. Publishers can showcase their AI models with detailed documentation, pricing, and collaboration features, while buyers can browse, subscribe to, and download models.
 
-## Overview
-
-This platform provides a comprehensive solution for AI model distribution with separate portals for publishers and buyers. Publishers can upload their AI models with detailed documentation, manage subscriptions, and track analytics. Buyers can browse the marketplace, subscribe to models, participate in discussions, and download model files.
-
-## Features
+## ✨ Features
 
 ### For Publishers
-- **Model Management**: Upload, edit, and delete AI models with rich documentation
-- **File Management**: Upload model files or link to external URLs (GitHub, Hugging Face, etc.)
-- **Analytics Dashboard**: Track model views, subscriptions, and performance metrics
-- **Collaboration**: Add collaborators to models for team management
-- **Categories**: Organize models with custom or predefined categories
+- **Model Management**: Create, edit, and publish AI models with rich descriptions
+- **Collaboration**: Add collaborators to co-manage models
+- **Analytics Dashboard**: Track views, subscribers, ratings, and revenue
+- **File Management**: Upload model files or link external resources
+- **API Documentation**: Provide comprehensive API specs in JSON, YAML, or Markdown
+- **Real-time Notifications**: Get notified of subscriptions, ratings, and discussions
 
 ### For Buyers
-- **Marketplace Browsing**: Discover AI models with advanced filtering and search
-- **Subscriptions**: Subscribe to free models instantly; access to paid models coming soon with integration of payment system
-- **Downloads**: Access model files after successful subscription
-- **Discussions**: Participate in model-specific discussions
-- **Ratings**: Rate models and view overall community ratings
-- **Activity Tracking**: Track your subscription and interaction history
-- **Notifications**: Real-time updates for subscriptions, discussions, and model changes
+- **Model Discovery**: Browse and search through published AI models
+- **Subscription Management**: Subscribe to models and track active subscriptions
+- **Ratings & Reviews**: Rate models and participate in discussions
+- **Activity Tracking**: View your subscription and interaction history
+- **Real-time Updates**: Receive notifications for model updates and replies
 
 ### Platform Features
-- **Authentication**: Email/password and Google OAuth via Supabase
-- **Role-Based Access**: Separate portals for publishers and buyers
-- **Real-time Notifications**: Stay updated with platform activities
-- **Responsive Design**: Fully responsive UI for desktop and mobile devices
-- **File Storage**: Secure file storage via Supabase Storage
-- **API Documentation Rendering**: Support for JSON, YAML, Markdown, and plain text formats
+- **Dual Role System**: Users can be both buyers and publishers
+- **Real-time Notifications**: Powered by Supabase Realtime
+- **Secure Authentication**: Google OAuth and email/password login
+- **Row Level Security**: Database-level access control
+- **MIMOS Brand Integration**: Custom themed UI with brand colors
 
-## Technology Stack
+## 🛠️ Tech Stack
 
 ### Frontend
-- **React 19** - UI library
-- **TypeScript** - Type-safe JavaScript
+- **React 19** - UI library with latest features
+- **TypeScript** - Type-safe development
 - **Vite** - Fast build tool and dev server
+- **Tailwind CSS v4** - Utility-first styling
 - **Wouter** - Lightweight routing
-- **TailwindCSS** - Utility-first CSS framework
-- **Shadcn/UI** - Beautiful UI components built on Radix UI
-
-### Backend
-- **Supabase** - Backend-as-a-Service (PostgreSQL + Auth + Storage + Real-time)
-- **Express.js** - Minimal Node.js server for serving the app
-- **PostgreSQL** - Relational database via Supabase
-
-### Additional Libraries
-- **Recharts** - Data visualization
+- **TanStack Query** - Server state management
+- **React Hook Form** - Form management
+- **Framer Motion** - Smooth animations
+- **Lucide React** - Beautiful icons
 - **React Markdown** - Markdown rendering
 - **React Syntax Highlighter** - Code syntax highlighting
-- **Lucide React** - Icon library
 
-## Prerequisites
+### Backend
+- **Supabase** - Backend-as-a-Service
+  - PostgreSQL database
+  - Authentication (Google OAuth, Email/Password)
+  - Row Level Security (RLS)
+  - Realtime subscriptions
+  - Storage (for file uploads)
+- **Express.js** - Server-side API endpoints
+- **Node.js** - Runtime environment
+
+### Development Tools
+- **ESBuild** - Fast bundler
+- **TSX** - TypeScript execution
+- **Cross-env** - Environment variables
+- **Zod** - Schema validation
+
+## 📋 Prerequisites
 
 Before you begin, ensure you have the following installed:
-- **Node.js** (v18 or higher) - [Download here](https://nodejs.org/)
-- **npm** - Comes with Node.js
-- **Git** - [Download here](https://git-scm.com/)
-- **Supabase Account** - [Sign up here](https://supabase.com/)
+- **Node.js** (v18 or higher) - [Download](https://nodejs.org/)
+- **npm** (comes with Node.js)
+- **Git** - [Download](https://git-scm.com/)
+- **Supabase Account** - [Sign up free](https://supabase.com/)
 
-## Getting Started
+## 🚀 Getting Started
 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/ai-marketplace.git
-cd ai-marketplace
+git clone <your-repository-url>
+cd AI-Marketplace
 ```
 
 ### 2. Install Dependencies
@@ -76,162 +80,195 @@ cd ai-marketplace
 npm install
 ```
 
-### 3. Set Up Supabase
+### 3. Set Up Supabase Database
 
-#### A. Create a New Supabase Project
+#### Create a New Supabase Project
+
 1. Go to [Supabase Dashboard](https://app.supabase.com/)
 2. Click "New Project"
 3. Fill in your project details:
-   - **Project Name**: Choose any name (e.g., "AI Marketplace")
-   - **Database Password**: Create a strong password (save this!)
-   - **Region**: Choose the closest region to your users
+   - **Name**: AI Model Marketplace
+   - **Database Password**: Choose a strong password (save this!)
+   - **Region**: Choose closest to your users
 4. Click "Create new project" and wait for setup to complete
 
-#### B. Run the Database Schema
-1. In your Supabase project dashboard, navigate to **SQL Editor** (left sidebar)
-2. Click "New Query"
-3. Copy the entire contents of the `schema.sql` file from this repository
-4. Paste it into the SQL editor
-5. Click **RUN** to execute the schema
-6. You should see a success message indicating tables were created
+#### Run Database Setup Scripts
 
-#### C. Set Up Storage Bucket
-1. Navigate to **Storage** in the Supabase dashboard (left sidebar)
-2. Click "Create a new bucket"
-3. Name it: `model-files`
-4. Make it **Public** (check the public checkbox)
-5. Click "Create bucket"
+Once your project is ready:
 
-#### D. Apply Storage Policies
-1. In the SQL Editor, create a new query
-2. Copy and paste the contents of `supabase-storage-policies.sql`
-3. Click **RUN** to apply the storage policies
-
-#### E. Initialize Roles Data
-1. In the SQL Editor, run this query to insert the default roles:
+1. Go to **SQL Editor** in your Supabase dashboard
+2. Run each SQL file from `supabase_database/` folder in order:
 
 ```sql
-INSERT INTO roles (role_name) VALUES ('buyer'), ('publisher')
-ON CONFLICT (role_name) DO NOTHING;
+-- 1. Create tables and constraints
+-- Copy and paste contents of: supabase_database/01_schema.sql
+-- Click "Run"
+
+-- 2. Create custom functions
+-- Copy and paste contents of: supabase_database/02_functions.sql
+-- Click "Run"
+
+-- 3. Create triggers
+-- Copy and paste contents of: supabase_database/03_triggers.sql
+-- Click "Run"
+
+-- 4. Enable Row Level Security
+-- Copy and paste contents of: supabase_database/04_rls.sql
+-- Click "Run"
+
+-- 5. Create performance indexes
+-- Copy and paste contents of: supabase_database/05_indexes.sql
+-- Click "Run"
+
+-- 6. Seed initial data (roles and categories)
+-- Copy and paste contents of: supabase_database/06_seed.sql
+-- Click "Run"
+
+-- 7. Enable realtime for notifications
+ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
 ```
+
+**✅ Verification**: After setup, run this query to verify:
+```sql
+SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';
+```
+You should see 15+ tables listed.
 
 ### 4. Configure Environment Variables
 
-1. Copy the example environment file:
-
+1. Copy the example environment file by running this command in your terminal at your project's root directory:
 ```bash
-cp .env.example .env
+cp .env.example .env.local
 ```
 
-2. Open `.env` and fill in your Supabase credentials:
+2. Get your Supabase credentials:
+   - Go to your Supabase project dashboard
+   - Click **Project Settings** in the left sidebar
+   - Click **Data API** → Copy the **Project URL**
+   - Click **API Keys** → Under "Legacy anon, service_role API keys":
+     - Copy the **anon public** key
+     - Copy the **service_role** key
 
+3. Update `.env.local` with your values:
 ```env
-# Get these from: Supabase Dashboard → Project Settings → Data API and API Keys
-
-# Your project URL (e.g., https://abcdefghijklm.supabase.co)
-VITE_SUPABASE_URL=your_supabase_project_url
-
-# Anon/Public key (safe to use in frontend)
-VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
-
-# Service role key (server-side only - keep secret!)
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+# Supabase Configuration
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key-here
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
 ```
 
-#### Finding Your Supabase Credentials:
-1. Go to your Supabase project dashboard
-2. Click on **Project Settings** in the left sidebar → **Data API** → **Project URL** (Copy this)
-3. Click on **Project Settings** in the left sidebar → **API Keys** → **Legacy anon, service_role API keys** → **anon public** and **service_role** (Copy these two) 
-4. You'll find:
-   - **Project URL** - Copy this to `VITE_SUPABASE_URL`
-   - **anon/public** key - Copy this to `VITE_SUPABASE_ANON_KEY`
-   - **service_role** key - Copy this to `SUPABASE_SERVICE_ROLE_KEY`
+⚠️ **Important**: Never commit `.env.local` to version control. It's already in `.gitignore`.
 
-### 5. Run the Application
+### 5. Configure Authentication
+
+#### Enable Google OAuth (Optional but Recommended)
+
+1. In Supabase Dashboard, go to **Authentication** → **Sign In / Providers**
+2. Find **Google** and click "Enable"
+3. Follow the instructions to set up Google OAuth:
+   - Create OAuth credentials in [Google Cloud Console](https://console.cloud.google.com/)
+   - Add authorized redirect URI: `https://your-project-id.supabase.co/auth/v1/callback`
+   - Copy Client ID and Client Secret to Supabase
+
+#### Enable Email Auth
+
+1. In Supabase Dashboard, go to **Authentication** → **Sign In / Providers**
+2. **Email** should be enabled by default
+3. Configure email templates if needed under **Authentication** → **Email Templates**
+
+### 6. Run the Application
 
 #### Development Mode
 
-Start the development server with hot reload:
+Run the server using the following command:
 
 ```bash
+# Terminal: Start server
 npm run dev
 ```
 
-Then start the client side:
+The application will be available at: http://localhost:5000
+
+#### Production Build
 
 ```bash
-npm run dev:client
-```
-
-The application will be available at:
-- **Express backend**: http://localhost:5000
-- **Vite dev server (this loads the app)**: http://localhost:5001
-
-#### Build for Production
-
-```bash
+# Build for production
 npm run build
+
+# Start production server
 npm start
 ```
 
-## Project Structure
+## 📱 Using the Application
 
+### First-Time Setup
+
+1. **Create an Account**:
+   - Go to http://localhost:5000
+   - Click "Sign In"
+   - Sign up with Google or email/password
+   - Choose your role (Buyer, Publisher, or Both)
+
+2. **As a Publisher**:
+   - Go to "My Models" from the sidebar
+   - Click "Create New Model"
+   - Fill in model details:
+     - Basic info (name, description, version)
+     - Technical details (accuracy, response time)
+     - Categories
+     - Pricing (free or paid)
+     - API documentation (supports JSON, YAML, Markdown)
+     - Upload files or add external URLs
+   - Click "Save as Draft" or "Publish"
+
+3. **As a Buyer**:
+   - Browse the Marketplace
+   - Use filters to find models (category, price, search)
+   - Click on a model to view details
+   - Click "Subscribe" to access the model
+   - View your subscriptions in "My Subscriptions"
+
+### Key Features to Try
+
+- **Rate Models**: Give 1-5 star ratings on model detail pages
+- **Discussions**: Start conversations and reply to comments
+- **Notifications**: Real-time updates in the notification center (bell icon)
+- **Collaboration**: Publishers can add collaborators to manage models together
+- **Analytics**: Publishers can view detailed stats on their dashboard
+- **Activity Log**: Track all your actions in the dashboard
+
+## 🐛 Troubleshooting
+
+### Build Errors
+
+**Problem**: TypeScript or build errors
+
+**Solution**:
+```bash
+# Clear node modules and reinstall
+rm -rf node_modules package-lock.json
+npm install
+
+# Clear build cache
+npm run clean  # (if you add this script)
 ```
-AI-Marketplace/
-├── client/                 # Frontend React application
-│   ├── src/
-│   │   ├── components/    # Reusable UI components
-│   │   ├── contexts/      # React context providers
-│   │   ├── hooks/         # Custom React hooks
-│   │   ├── lib/           # Utilities and helpers
-│   │   ├── pages/         # Route pages
-│   │   └── App.tsx        # Main app component
-│   └── public/            # Static assets
-├── server/                # Express server
-├── schema.sql             # Main database schema
-├── supabase-*.sql         # Additional SQL scripts
-└── package.json           # Project dependencies
+
+## 📝 Available Scripts
+
+```bash
+# Development (Recommended)
+npm run dev              # Start full-stack server (frontend + backend on port 5000)
+npm run dev:client       # [Alternative] Start only Vite frontend dev server
+
+# Build
+npm run build            # Build for production
+npm run check            # TypeScript type checking
+
+# Production
+npm start                # Start production server
 ```
-
-## Usage Guide
-
-### First Time Setup
-
-1. **Visit the Landing Page**: Navigate to http://localhost:5001
-2. **Register an Account**:
-   - Click "Register as Publisher" or "Register as Buyer"
-   - Choose email/password or Google OAuth
-   - Complete the registration form
-3. **Explore the Platform**:
-   - **Publishers**: Access Analytics, create models, manage subscriptions
-   - **Buyers**: Browse marketplace, subscribe to models, participate in discussions
-
-### Publisher Workflow
-
-1. Navigate to "My Models" → "Create Model"
-2. Fill in model details (name, description, features, etc.)
-3. Upload files or add external URLs
-4. Add categories and API documentation
-5. Publish the model
-6. Monitor analytics and manage subscriptions from the dashboard
-
-### Buyer Workflow
-
-1. Browse the marketplace to discover models
-2. Filter by category, subscription type, or search keywords
-3. View model details, ratings, and discussions
-4. Subscribe to models (free: instant, paid: coming soon)
-5. Download model files
-6. Rate and discuss models with the community
-
-## Available Scripts
-
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm start` - Start production server
-- `npm run check` - Type check with TypeScript
-- `npm run dev:client` - Run only the Vite dev server
+**Note**: You only need `npm run dev` for development. It runs the Express server with integrated Vite middleware, serving both frontend and backend on port 5000.
 
 ---
 
-**Developed with ❤️ for the AI community**
+Made with ❤️ for MIMOS Berhad

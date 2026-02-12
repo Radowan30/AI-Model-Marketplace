@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Menu, X, Bell } from "lucide-react";
 import { useState, useEffect } from "react";
 import { useNotifications } from "@/hooks/use-notifications";
+import { useAuth } from "@/hooks/use-auth";
 import { NotificationCenter } from "@/components/NotificationCenter";
 import {
   Dialog,
@@ -21,7 +22,20 @@ export function Navbar({ layout = "public", onMobileSidebarToggle, mobileSidebar
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [notificationDialogOpen, setNotificationDialogOpen] = useState(false);
 
-  const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
+  const { currentRole } = useAuth();
+  const { notifications, markAsRead, markAllAsRead } = useNotifications();
+
+  // Calculate role-filtered unread count
+  const roleFilteredUnreadCount = notifications.filter((n) => {
+    if (!n.isRead) {
+      if (currentRole === 'publisher') {
+        return ["new_subscription", "collaborator_subscription", "new_discussion", "new_comment", "comment_reply", "new_rating"].includes(n.type);
+      } else if (currentRole === 'buyer') {
+        return ["comment_reply", "model_updated", "subscription_success"].includes(n.type);
+      }
+    }
+    return false;
+  }).length;
 
   useEffect(() => {
     const handleScroll = () => {
@@ -107,9 +121,9 @@ export function Navbar({ layout = "public", onMobileSidebarToggle, mobileSidebar
             className="md:hidden relative flex-shrink-0"
           >
             <Bell className="w-4 h-4" />
-            {unreadCount > 0 && (
+            {roleFilteredUnreadCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                {unreadCount > 9 ? '9+' : unreadCount}
+                {roleFilteredUnreadCount > 9 ? '9+' : roleFilteredUnreadCount}
               </span>
             )}
           </Button>
@@ -153,9 +167,9 @@ export function Navbar({ layout = "public", onMobileSidebarToggle, mobileSidebar
               className="text-muted-foreground hover:text-primary relative"
             >
               <Bell className="w-5 h-5" />
-              {unreadCount > 0 && (
+              {roleFilteredUnreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center">
-                  {unreadCount > 9 ? '9+' : unreadCount}
+                  {roleFilteredUnreadCount > 9 ? '9+' : roleFilteredUnreadCount}
                 </span>
               )}
             </Button>
@@ -207,6 +221,7 @@ export function Navbar({ layout = "public", onMobileSidebarToggle, mobileSidebar
               notifications={notifications}
               onMarkAsRead={markAsRead}
               onMarkAllAsRead={markAllAsRead}
+              currentRole={currentRole as 'buyer' | 'publisher'}
             />
           </DialogContent>
         </Dialog>

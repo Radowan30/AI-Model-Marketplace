@@ -36,16 +36,11 @@ export async function fetchPublishedModels() {
   // Get all model IDs
   const modelIds = data.map(m => m.id);
 
-  // Calculate 30 days ago timestamp
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-  // Fetch all views for these models (last 30 days)
+  // Fetch all views for these models (all-time)
   const { data: allViews, error: viewsError } = await supabase
     .from('views')
     .select('model_id')
-    .in('model_id', modelIds)
-    .gte('timestamp', thirtyDaysAgo.toISOString());
+    .in('model_id', modelIds);
 
   if (viewsError) {
     console.error('Error fetching views:', viewsError);
@@ -81,8 +76,7 @@ export async function fetchPublishedModels() {
     publisher_name: model.users?.name || 'Unknown Publisher',
     publisher_email: model.users?.email || '',
     collaborators: model.collaborators || [],
-    // Add actual statistics from source tables
-    page_views_30_days: viewsByModel[model.id] || 0,
+    total_views: viewsByModel[model.id] || 0,
     downloads: downloadsByModel[model.id] || 0
   }));
 
@@ -127,6 +121,16 @@ export async function fetchModelById(modelId: string) {
 
   if (viewsError) {
     console.error('Error fetching page views count:', viewsError);
+  }
+
+  // Count all-time page views
+  const { count: pageViewsTotal, error: viewsTotalError } = await supabase
+    .from('views')
+    .select('*', { count: 'exact', head: true })
+    .eq('model_id', modelId);
+
+  if (viewsTotalError) {
+    console.error('Error fetching total page views count:', viewsTotalError);
   }
 
   // Count active subscriptions
@@ -194,6 +198,7 @@ export async function fetchModelById(modelId: string) {
     collaborators: data.collaborators || [],
     // Override with actual statistics from source tables
     page_views_30_days: pageViews || 0,
+    total_views: pageViewsTotal || 0,
     active_subscribers: activeSubscribers || 0,
     total_subscribers: totalSubscribers || 0,
     discussion_count: discussionCount || 0,
@@ -203,43 +208,6 @@ export async function fetchModelById(modelId: string) {
   };
 
   return transformDatabaseModel(modelWithCategories);
-}
-
-/**
- * Fetch publisher's models with their categories and publisher info
- */
-export async function fetchPublisherModels(publisherId: string) {
-  const { data, error } = await supabase
-    .from('models')
-    .select(`
-      *,
-      model_categories(
-        categories(id, name, is_custom)
-      ),
-      users:publisher_id(
-        name,
-        email
-      ),
-      collaborators(
-        name,
-        email
-      )
-    `)
-    .eq('publisher_id', publisherId)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-
-  // Transform the nested categories structure and add publisher info and collaborators
-  const modelsWithCategories = (data || []).map(model => ({
-    ...model,
-    categories: model.model_categories?.map((mc: any) => mc.categories).filter(Boolean) || [],
-    publisher_name: model.users?.name || 'Unknown Publisher',
-    publisher_email: model.users?.email || '',
-    collaborators: model.collaborators || []
-  }));
-
-  return transformDatabaseModels(modelsWithCategories);
 }
 
 /**
@@ -262,6 +230,7 @@ export async function createModel(modelData: any) {
       status: modelData.status || 'draft',
       subscription_type: modelData.subscriptionType || 'free',
       subscription_amount: modelData.priceAmount,
+      published_on: modelData.status === 'published' ? new Date().toISOString() : null,
     })
     .select()
     .single();
@@ -300,170 +269,6 @@ export async function updateModel(modelId: string, updates: any) {
 }
 
 /**
- * Delete a model
- */
-export async function deleteModel(modelId: string) {
-  const { error } = await supabase
-    .from('models')
-    .delete()
-    .eq('id', modelId);
-
-  if (error) throw error;
-}
-
-/**
- * Create a subscription
- */
-export async function createSubscription(buyerId: string, modelId: string) {
-  // First get the model to check subscription type
-  const { data: model } = await supabase
-    .from('models')
-    .select('subscription_type')
-    .eq('id', modelId)
-    .single();
-
-  const { data, error } = await supabase
-    .from('subscriptions')
-    .insert({
-      buyer_id: buyerId,
-      model_id: modelId,
-      status: 'active',
-      approved_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-/**
- * Fetch user's subscriptions
- */
-export async function fetchUserSubscriptions(buyerId: string) {
-  const { data, error } = await supabase
-    .from('subscriptions')
-    .select(`
-      *,
-      model:models(*)
-    `)
-    .eq('buyer_id', buyerId)
-    .order('subscribed_at', { ascending: false });
-
-  if (error) throw error;
-  return data || [];
-}
-
-/**
- * Cancel subscription
- */
-export async function cancelSubscription(subscriptionId: string) {
-  const { error } = await supabase
-    .from('subscriptions')
-    .update({
-      status: 'cancelled',
-      cancelled_at: new Date().toISOString(),
-    })
-    .eq('id', subscriptionId);
-
-  if (error) throw error;
-}
-
-/**
- * Fetch discussions for a model
- */
-export async function fetchModelDiscussions(modelId: string) {
-  const { data, error } = await supabase
-    .from('discussions')
-    .select(`
-      *,
-      comments(*)
-    `)
-    .eq('model_id', modelId)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data || [];
-}
-
-/**
- * Create a discussion
- */
-export async function createDiscussion(discussionData: any) {
-  const { data, error } = await supabase
-    .from('discussions')
-    .insert({
-      model_id: discussionData.modelId,
-      user_id: discussionData.userId,
-      user_name: discussionData.userName,
-      title: discussionData.title,
-      content: discussionData.content,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-/**
- * Create a comment on a discussion
- */
-export async function createComment(commentData: any) {
-  const { data, error } = await supabase
-    .from('comments')
-    .insert({
-      discussion_id: commentData.discussionId,
-      user_id: commentData.userId,
-      user_name: commentData.userName,
-      content: commentData.content,
-    })
-    .select()
-    .single();
-
-  if (error) throw error;
-  return data;
-}
-
-/**
- * Log activity
- */
-export async function logActivity(userId: string, activityType: string, modelId: string, details?: any) {
-  const { data: model } = await supabase
-    .from('models')
-    .select('model_name')
-    .eq('id', modelId)
-    .single();
-
-  const { error } = await supabase
-    .from('activity_log')
-    .insert({
-      user_id: userId,
-      activity_type: activityType,
-      model_id: modelId,
-      model_name: model?.model_name,
-      details: details,
-    });
-
-  if (error) throw error;
-}
-
-/**
- * Fetch recent activity for a user
- */
-export async function fetchUserActivity(userId: string, limit = 10) {
-  const { data, error } = await supabase
-    .from('activity_log')
-    .select('*')
-    .eq('user_id', userId)
-    .order('timestamp', { ascending: false })
-    .limit(limit);
-
-  if (error) throw error;
-  return data || [];
-}
-
-/**
  * Insert collaborators for a model
  */
 export async function insertCollaborators(modelId: string, collaborators: Array<{ name: string; email: string }>) {
@@ -499,18 +304,6 @@ export async function fetchCollaborators(modelId: string) {
 }
 
 /**
- * Delete all collaborators for a model
- */
-export async function deleteCollaborators(modelId: string) {
-  const { error } = await supabase
-    .from('collaborators')
-    .delete()
-    .eq('model_id', modelId);
-
-  if (error) throw error;
-}
-
-/**
  * Smart update collaborators - only deletes removed and inserts new ones.
  *
  * Rules:
@@ -541,7 +334,7 @@ export async function updateCollaborators(
   const newEmails = new Set(newCollaborators.map(c => normalizeEmail(c.email)));
 
   // Find collaborators to remove (in current but not in new)
-  let emailsToRemove = [...currentEmails].filter(email => !newEmails.has(email));
+  let emailsToRemove = Array.from(currentEmails).filter(email => !newEmails.has(email));
 
   // Check if a non-owner collaborator is trying to remove themselves
   let selfRemovalAttempted = false;

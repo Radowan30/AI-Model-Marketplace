@@ -4,7 +4,7 @@
 import { supabase } from './supabase';
 
 // Constants
-export const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 export const STORAGE_BUCKET = 'model-files';
 
 /**
@@ -44,71 +44,6 @@ export function formatFileSize(bytes: number): string {
 }
 
 /**
- * Upload file to Supabase Storage
- */
-export async function uploadFile(
-  file: File,
-  userId: string,
-  modelId: string,
-  description?: string
-): Promise<{ url: string; fileId: string }> {
-  // Validate file
-  const validation = validateFile(file);
-  if (!validation.valid) {
-    throw new Error(validation.error);
-  }
-
-  // Generate file path: publisher_id/model_id/filename
-  const timestamp = Date.now();
-  const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-  const filePath = `${userId}/${modelId}/${timestamp}_${sanitizedFileName}`;
-
-  // Upload to Supabase Storage
-  const { data: uploadData, error: uploadError } = await supabase.storage
-    .from(STORAGE_BUCKET)
-    .upload(filePath, file, {
-      cacheControl: '3600',
-      upsert: false,
-    });
-
-  if (uploadError) {
-    console.error('Upload error:', uploadError);
-    throw new Error(`Upload failed: ${uploadError.message}`);
-  }
-
-  // Get public URL
-  const { data: { publicUrl } } = supabase.storage
-    .from(STORAGE_BUCKET)
-    .getPublicUrl(filePath);
-
-  // Save file metadata to database
-  const { data: fileData, error: dbError } = await supabase
-    .from('model_files')
-    .insert({
-      model_id: modelId,
-      file_name: file.name,
-      file_type: 'upload',
-      file_url: publicUrl,
-      file_path: filePath,
-      file_size: file.size,
-      description: description || null,
-    })
-    .select()
-    .single();
-
-  if (dbError) {
-    // If database insert fails, try to delete the uploaded file
-    await supabase.storage.from(STORAGE_BUCKET).remove([filePath]);
-    throw new Error(`Failed to save file metadata: ${dbError.message}`);
-  }
-
-  return {
-    url: publicUrl,
-    fileId: fileData.id,
-  };
-}
-
-/**
  * Upload file with progress tracking
  */
 export async function uploadFileWithProgress(
@@ -132,16 +67,10 @@ export async function uploadFileWithProgress(
   const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
   const filePath = `${userId}/${modelId}/${timestamp}_${sanitizedFileName}`;
 
-  // Simulate progress during upload
-  const progressInterval = setInterval(() => {
-    // This is a simulation - real progress would require custom implementation
-    // For small files, this provides user feedback
-  }, 100);
-
   try {
     onProgress(30);
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from(STORAGE_BUCKET)
       .upload(filePath, file, {
         cacheControl: '3600',
@@ -178,14 +107,12 @@ export async function uploadFileWithProgress(
     }
 
     onProgress(100);
-    clearInterval(progressInterval);
 
     return {
       url: publicUrl,
       fileId: fileData.id,
     };
   } catch (error) {
-    clearInterval(progressInterval);
     throw error;
   }
 }

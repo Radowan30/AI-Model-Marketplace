@@ -1,6 +1,5 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
-import { storage } from "./storage";
+import { type Server } from "http";
 import { supabaseAdmin } from "./supabase-admin";
 
 export async function registerRoutes(
@@ -19,7 +18,7 @@ export async function registerRoutes(
         });
       }
 
-      // Get user by email using getUserByEmail (more efficient than listing all users)
+      // Get user by email using getUserByEmail
       let existingUser;
       try {
         const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
@@ -58,7 +57,7 @@ export async function registerRoutes(
       const providersFromIdentities = existingUser.identities?.map((i: any) => i.provider) || [];
 
       // Combine both sources of provider information
-      const allProviders = [...new Set([...providersFromMeta, ...providersFromIdentities])];
+      const allProviders = Array.from(new Set([...providersFromMeta, ...providersFromIdentities]));
 
       console.log(`All providers for user:`, allProviders);
 

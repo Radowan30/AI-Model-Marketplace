@@ -15,7 +15,6 @@ import {
   Clock,
   Download,
   MessageSquare,
-  Shield,
   Star,
   Lock,
   Activity,
@@ -31,6 +30,7 @@ import {
   Reply,
   Info,
   Trash2,
+  ArrowLeftRight,
 } from "lucide-react";
 import { useRoute } from "wouter";
 import { useState, useEffect } from "react";
@@ -60,7 +60,6 @@ import {
 } from "@/components/ui/tooltip";
 import {
   fetchModelFiles,
-  checkFileAccess,
   downloadFile,
   formatFileSize,
 } from "@/lib/file-upload";
@@ -68,18 +67,25 @@ import { supabase } from "@/lib/supabase";
 import { logActivity } from "@/lib/activity-logger";
 import { ApiSpecRenderer } from "@/components/ApiSpecRenderer";
 import { fetchModelById } from "@/lib/api";
-import { triggerCommentReplyNotification } from "@/lib/notification-triggers";
+import {
+  triggerSubscriptionNotifications,
+  triggerNewDiscussionNotification,
+  triggerNewCommentNotification,
+  triggerNewRatingNotification,
+} from "@/lib/notification-triggers";
 import { formatCount } from "@/lib/format-utils";
+import { Category, Comment, Model } from "@/lib/types";
 
 export default function ModelDetailsPage() {
-  const [match, params] = useRoute("/model/:id");
+  const [, params] = useRoute("/model/:id");
   const modelId = params?.id;
   const { toast } = useToast();
   const { user, userProfile, currentRole } = useAuth();
 
   // Model state
-  const [model, setModel] = useState<any>(null);
+  const [model, setModel] = useState<Model | null>(null);
   const [loadingModel, setLoadingModel] = useState(true);
+  const [showTotalViews, setShowTotalViews] = useState(true);
 
   // Discussions state
   const [discussions, setDiscussions] = useState<any[]>([]);
@@ -106,13 +112,13 @@ export default function ModelDetailsPage() {
 
   // Comment state - track which discussion has active comment form
   const [activeCommentForm, setActiveCommentForm] = useState<string | null>(
-    null
+    null,
   );
   const [commentContent, setCommentContent] = useState<{
     [key: string]: string;
   }>({});
   const [submittingComment, setSubmittingComment] = useState<string | null>(
-    null
+    null,
   );
 
   // Reply mode state - track which comment is being replied to
@@ -126,7 +132,7 @@ export default function ModelDetailsPage() {
   // Delete state
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{
-    type: 'discussion' | 'comment';
+    type: "discussion" | "comment";
     id: string;
     discussionId?: string;
   } | null>(null);
@@ -137,12 +143,11 @@ export default function ModelDetailsPage() {
   const [hasFileAccess, setHasFileAccess] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(true);
   const [downloadingFileId, setDownloadingFileId] = useState<string | null>(
-    null
+    null,
   );
 
   // Direct collaborator status (bypasses model.collaborators join issues)
   const [isUserCollaborator, setIsUserCollaborator] = useState(false);
-  const [checkingCollaborator, setCheckingCollaborator] = useState(true);
 
   // Fetch model data
   useEffect(() => {
@@ -167,6 +172,19 @@ export default function ModelDetailsPage() {
 
     loadModel();
   }, [modelId, toast]);
+
+  // Refresh model data (pessimistic updates)
+  const refreshModel = async () => {
+    if (!modelId) return;
+
+    try {
+      const updatedModel = await fetchModelById(modelId);
+      setModel(updatedModel);
+    } catch (error: any) {
+      console.error("Error refreshing model:", error);
+      // Silent fail - don't show error to user, just log it
+    }
+  };
 
   // Check subscription status from database
   useEffect(() => {
@@ -211,28 +229,26 @@ export default function ModelDetailsPage() {
     const checkCollaboratorStatus = async () => {
       if (!modelId || !user || currentRole !== "publisher") {
         setIsUserCollaborator(false);
-        setCheckingCollaborator(false);
         return;
       }
 
       // Get user email (prefer userProfile, fallback to user.email)
-      const userEmail = (userProfile?.email || user?.email || '').toLowerCase().trim();
+      const userEmail = (userProfile?.email || user?.email || "")
+        .toLowerCase()
+        .trim();
       if (!userEmail) {
         console.log("[Collaborator Check] No user email available");
         setIsUserCollaborator(false);
-        setCheckingCollaborator(false);
         return;
       }
 
       try {
-        setCheckingCollaborator(true);
-
         // Direct query to collaborators table
         const { data: collabData, error: collabError } = await supabase
-          .from('collaborators')
-          .select('email, name')
-          .eq('model_id', modelId)
-          .ilike('email', userEmail);
+          .from("collaborators")
+          .select("email, name")
+          .eq("model_id", modelId)
+          .ilike("email", userEmail);
 
         if (collabError) {
           console.error("[Collaborator Check] Query error:", collabError);
@@ -247,8 +263,6 @@ export default function ModelDetailsPage() {
       } catch (error) {
         console.error("[Collaborator Check] Error:", error);
         setIsUserCollaborator(false);
-      } finally {
-        setCheckingCollaborator(false);
       }
     };
 
@@ -333,7 +347,14 @@ export default function ModelDetailsPage() {
     };
 
     checkAccessAndLoadFiles();
-  }, [modelId, user, model, subscriptionStatus, isUserCollaborator, currentRole]);
+  }, [
+    modelId,
+    user,
+    model,
+    subscriptionStatus,
+    isUserCollaborator,
+    currentRole,
+  ]);
 
   // Track page view
   useEffect(() => {
@@ -412,7 +433,7 @@ export default function ModelDetailsPage() {
               recipient_user_id,
               recipient_user_name
             )
-          `
+          `,
           )
           .eq("model_id", modelId)
           .order("created_at", { ascending: false });
@@ -522,7 +543,6 @@ export default function ModelDetailsPage() {
               .from("subscriptions")
               .update({
                 status: "active",
-                approved_at: new Date().toISOString(),
                 cancelled_at: null,
               })
               .eq("id", existingSub.id);
@@ -542,7 +562,6 @@ export default function ModelDetailsPage() {
               buyer_id: user.id,
               model_id: modelId,
               status: "active",
-              approved_at: new Date().toISOString(),
             });
 
           if (insertError) throw insertError;
@@ -557,6 +576,16 @@ export default function ModelDetailsPage() {
         // Update local state - file access useEffect will handle the rest
         setSubscriptionStatus("active");
 
+        // Create notifications for publisher(s) and buyer
+        await triggerSubscriptionNotifications({
+          modelId: modelId!,
+          modelName: model.name,
+          publisherId: model.publisherId,
+          buyerId: user.id,
+          buyerName: userProfile?.name || user.email || "User",
+          buyerEmail: userProfile?.email || user.email || "",
+        });
+
         // Log activity
         await logActivity({
           userId: user.id,
@@ -565,8 +594,11 @@ export default function ModelDetailsPage() {
           description: "Free subscription",
           modelId: modelId,
           modelName: model.name,
-          role: currentRole as 'buyer' | 'publisher',
+          role: currentRole as "buyer" | "publisher",
         });
+
+        // Refresh model stats
+        await refreshModel();
       } catch (error) {
         console.error("Error subscribing:", error);
         toast({
@@ -637,8 +669,11 @@ export default function ModelDetailsPage() {
         description: "Cancelled subscription",
         modelId: modelId,
         modelName: model.name,
-        role: currentRole as 'buyer' | 'publisher',
+        role: currentRole as "buyer" | "publisher",
       });
+
+      // Refresh model stats
+      await refreshModel();
 
       toast({
         title: "Successfully Unsubscribed",
@@ -657,7 +692,11 @@ export default function ModelDetailsPage() {
   };
 
   // Handle delete discussion or comment
-  const handleDeleteClick = (type: 'discussion' | 'comment', id: string, discussionId?: string) => {
+  const handleDeleteClick = (
+    type: "discussion" | "comment",
+    id: string,
+    discussionId?: string,
+  ) => {
     setDeleteTarget({ type, id, discussionId });
     setDeleteDialogOpen(true);
   };
@@ -668,17 +707,20 @@ export default function ModelDetailsPage() {
     try {
       setDeleting(true);
 
-      if (deleteTarget.type === 'discussion') {
+      if (deleteTarget.type === "discussion") {
         // Delete entire discussion (cascade will delete all comments)
         const { error } = await supabase
-          .from('discussions')
+          .from("discussions")
           .delete()
-          .eq('id', deleteTarget.id);
+          .eq("id", deleteTarget.id);
 
         if (error) throw error;
 
         // Remove from local state
-        setDiscussions(prev => prev.filter(d => d.id !== deleteTarget.id));
+        setDiscussions((prev) => prev.filter((d) => d.id !== deleteTarget.id));
+
+        // Refresh model stats
+        await refreshModel();
 
         toast({
           title: "Discussion Deleted",
@@ -687,22 +729,25 @@ export default function ModelDetailsPage() {
       } else {
         // Delete individual comment
         const { error } = await supabase
-          .from('comments')
+          .from("comments")
           .delete()
-          .eq('id', deleteTarget.id);
+          .eq("id", deleteTarget.id);
 
         if (error) throw error;
 
         // Remove from local state
-        setDiscussions(prev => prev.map(d => {
-          if (d.id === deleteTarget.discussionId) {
-            return {
-              ...d,
-              replies: d.replies?.filter((r: any) => r.id !== deleteTarget.id) || []
-            };
-          }
-          return d;
-        }));
+        setDiscussions((prev) =>
+          prev.map((d) => {
+            if (d.id === deleteTarget.discussionId) {
+              return {
+                ...d,
+                replies:
+                  d.replies?.filter((r: any) => r.id !== deleteTarget.id) || [],
+              };
+            }
+            return d;
+          }),
+        );
 
         toast({
           title: "Comment Deleted",
@@ -710,7 +755,7 @@ export default function ModelDetailsPage() {
         });
       }
     } catch (error) {
-      console.error('Error deleting:', error);
+      console.error("Error deleting:", error);
       toast({
         title: "Delete Failed",
         description: "Failed to delete. Please try again.",
@@ -727,7 +772,8 @@ export default function ModelDetailsPage() {
   const isModelOwner = model?.publisherId === user?.id;
   // Use isUserCollaborator state (from direct DB query) instead of model.collaborators
   // This ensures collaborator detection works even if the join has RLS issues
-  const isCollaborator = currentRole === "publisher" && isUserCollaborator && !isModelOwner;
+  const isCollaborator =
+    currentRole === "publisher" && isUserCollaborator && !isModelOwner;
 
   const handleBack = () => {
     window.history.back();
@@ -747,7 +793,7 @@ export default function ModelDetailsPage() {
         modelId,
         user?.id || null,
         userProfile?.email || user?.email || null,
-        currentRole
+        currentRole,
       );
 
       // Log download activity
@@ -758,13 +804,16 @@ export default function ModelDetailsPage() {
         description: `File: ${file.file_name}`,
         modelId: modelId,
         modelName: model.name,
-        role: currentRole as 'buyer' | 'publisher',
+        role: currentRole as "buyer" | "publisher",
         metadata: {
           fileName: file.file_name,
           fileSize: file.file_size,
           fileType: "upload",
         },
       });
+
+      // Refresh model stats
+      await refreshModel();
 
       toast({
         title: "Download Started",
@@ -807,7 +856,7 @@ export default function ModelDetailsPage() {
       setSubmittingRating(true);
 
       // Store old rating for comparison
-      const oldAverageRating = model.average_rating || 0;
+      const oldAverageRating = model.averageRating || 0;
 
       // Upsert rating (insert or update if exists)
       const { error: ratingError } = await supabase.from("ratings").upsert(
@@ -819,7 +868,7 @@ export default function ModelDetailsPage() {
         },
         {
           onConflict: "model_id,user_id",
-        }
+        },
       );
 
       if (ratingError) throw ratingError;
@@ -849,12 +898,15 @@ export default function ModelDetailsPage() {
 
       if (updateError) throw updateError;
 
-      // Update local model state
-      setModel((prev: any) => ({
-        ...prev,
-        average_rating: newAverageRating,
-        total_rating_count: totalRatings,
-      }));
+      // Create notification for publisher(s)
+      await triggerNewRatingNotification({
+        modelId: modelId!,
+        modelName: model.name,
+        publisherId: model.publisherId,
+        raterName: userProfile?.name || user.email || "User",
+        raterId: user.id,
+        rating: selectedRating,
+      });
 
       // Log activity
       await logActivity({
@@ -866,13 +918,16 @@ export default function ModelDetailsPage() {
         }`,
         modelId: modelId,
         modelName: model.name,
-        role: currentRole as 'buyer' | 'publisher',
+        role: currentRole as "buyer" | "publisher",
         metadata: {
           rating: selectedRating,
           oldAverage: oldAverageRating,
           newAverage: newAverageRating,
         },
       });
+
+      // Refresh model stats
+      await refreshModel();
 
       toast({
         title: "Rating Submitted",
@@ -958,6 +1013,17 @@ export default function ModelDetailsPage() {
 
       setDiscussions((prev) => [newDiscussion, ...prev]);
 
+      // Create notification for publisher(s)
+      await triggerNewDiscussionNotification({
+        modelId: modelId!,
+        modelName: model.name,
+        publisherId: model.publisherId,
+        discussionId: data.id,
+        posterName: userProfile?.name || "User",
+        posterId: user?.id || "",
+        discussionPreview: discussionContent,
+      });
+
       // Log activity
       if (user && currentRole) {
         await logActivity({
@@ -967,9 +1033,12 @@ export default function ModelDetailsPage() {
           description: discussionTitle,
           modelId: modelId,
           modelName: model.name,
-          role: currentRole as 'buyer' | 'publisher',
+          role: currentRole as "buyer" | "publisher",
         });
       }
+
+      // Refresh model stats
+      await refreshModel();
 
       toast({
         title: "Discussion Created",
@@ -1060,8 +1129,20 @@ export default function ModelDetailsPage() {
             };
           }
           return disc;
-        })
+        }),
       );
+
+      // Create notifications (smart logic: reply vs new comment)
+      await triggerNewCommentNotification({
+        modelId: modelId!,
+        modelName: model.name,
+        publisherId: model.publisherId,
+        discussionId: discussionId,
+        commenterName: userProfile?.name || "User",
+        commenterId: user?.id || "",
+        commentPreview: content,
+        parentCommentUserId: replyingTo?.userId, // If exists, triggers reply notification
+      });
 
       // Log activity
       if (user && currentRole) {
@@ -1072,32 +1153,7 @@ export default function ModelDetailsPage() {
           description: content.substring(0, 100),
           modelId: modelId,
           modelName: model.name,
-          role: currentRole as 'buyer' | 'publisher',
-        });
-      }
-
-      // Create notification if replying to someone (and not replying to yourself)
-      if (replyingTo && replyingTo.userId !== user?.id) {
-        const notification = triggerCommentReplyNotification({
-          modelId: modelId,
-          modelName: model.name,
-          recipientUserId: replyingTo.userId,
-          discussionId: discussionId,
-          replyAuthor: userProfile?.name || "User",
-          commentPreview: content.substring(0, 100),
-        });
-
-        // Save notification to database
-        await supabase.from("notifications").insert({
-          user_id: notification.userId,
-          type: notification.type,
-          title: notification.title,
-          message: notification.message,
-          related_model_id: notification.relatedModelId,
-          related_model_name: notification.relatedModelName,
-          related_discussion_id: notification.relatedDiscussionId,
-          is_read: false,
-          metadata: notification.metadata,
+          role: currentRole as "buyer" | "publisher",
         });
       }
 
@@ -1138,7 +1194,7 @@ export default function ModelDetailsPage() {
           <div className="flex-1">
             <h1 className="text-4xl font-heading font-bold">{model.name}</h1>
             <div className="flex items-center gap-3 flex-wrap mt-2">
-              {model.categories.map((category) => (
+              {model.categories.map((category: Category) => (
                 <Badge key={category.id}>{category.name}</Badge>
               ))}
               <span className="text-sm text-muted-foreground">
@@ -1216,8 +1272,8 @@ export default function ModelDetailsPage() {
                         Preview Only - Cannot Subscribe
                       </Button>
                       <p className="text-xs text-center text-muted-foreground mt-2">
-                        Publishers can only preview models. Use a buyer account to
-                        subscribe.
+                        Publishers can only preview models. Use a buyer account
+                        to subscribe.
                       </p>
                     </>
                   )}
@@ -1360,7 +1416,7 @@ export default function ModelDetailsPage() {
             <div>
               <h3 className="text-xl font-bold mb-4">Key Features</h3>
               <ul className="grid md:grid-cols-2 gap-3">
-                {model.features.map((feature, i) => (
+                {model.features.map((feature: string, i: number) => (
                   <li key={i} className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-primary" />
                     <span>{feature}</span>
@@ -1422,7 +1478,7 @@ export default function ModelDetailsPage() {
                 </div>
                 <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
                   <span className="text-muted-foreground font-medium sm:min-w-32 shrink-0">
-                    Published On:
+                    First Published On:
                   </span>
                   <span className="break-words">
                     {new Date(model.publishedDate).toLocaleDateString("en-US", {
@@ -1708,7 +1764,12 @@ export default function ModelDetailsPage() {
                                     variant="ghost"
                                     size="sm"
                                     className="h-7 px-2 text-destructive hover:text-destructive hover:bg-destructive/10"
-                                    onClick={() => handleDeleteClick('discussion', discussion.id)}
+                                    onClick={() =>
+                                      handleDeleteClick(
+                                        "discussion",
+                                        discussion.id,
+                                      )
+                                    }
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </Button>
@@ -1729,7 +1790,7 @@ export default function ModelDetailsPage() {
                             {/* Replies */}
                             {displayedReplies.length > 0 && (
                               <div className="mt-4 pl-4 border-l-2 border-border space-y-4">
-                                {displayedReplies.map((reply) => (
+                                {displayedReplies.map((reply: Comment) => (
                                   <div key={reply.id}>
                                     {reply.recipientUserName && (
                                       <div className="text-xs text-muted-foreground/70 mb-1 bg-secondary/30 px-2 py-0.5 rounded inline-block">
@@ -1763,7 +1824,13 @@ export default function ModelDetailsPage() {
                                       </button>
                                       {(isModelOwner || isCollaborator) && (
                                         <button
-                                          onClick={() => handleDeleteClick('comment', reply.id, discussion.id)}
+                                          onClick={() =>
+                                            handleDeleteClick(
+                                              "comment",
+                                              reply.id,
+                                              discussion.id,
+                                            )
+                                          }
                                           className="flex items-center gap-1 text-xs text-destructive hover:text-destructive/80 transition-colors"
                                         >
                                           <Trash2 className="w-3 h-3" />
@@ -1920,7 +1987,7 @@ export default function ModelDetailsPage() {
                 <h3 className="text-xl font-bold">Model Statistics</h3>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {/* Page Views (Last 30 Days) */}
+                  {/* Page Views with Toggle */}
                   <Card className="relative">
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -1936,20 +2003,37 @@ export default function ModelDetailsPage() {
                       </TooltipContent>
                     </Tooltip>
                     <CardContent className="p-6">
-                      <div className="flex items-center gap-4">
-                        <div className="p-3 bg-blue-100 rounded-lg">
-                          <Eye className="w-6 h-6 text-blue-600" />
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className="p-3 bg-blue-100 rounded-lg">
+                            <Eye className="w-6 h-6 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="text-sm text-muted-foreground">
+                              {showTotalViews ? "Total Views" : "Views (30d)"}
+                            </p>
+                            <p className="text-2xl font-bold transition-all duration-300">
+                              {showTotalViews
+                                ? model.totalViews
+                                  ? formatCount(model.totalViews)
+                                  : "-"
+                                : model.pageViews30Days
+                                  ? formatCount(model.pageViews30Days)
+                                  : "-"}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="text-sm text-muted-foreground">
-                            Page Views (30d)
-                          </p>
-                          <p className="text-2xl font-bold">
-                            {model.pageViews30Days
-                              ? formatCount(model.pageViews30Days)
-                              : "-"}
-                          </p>
-                        </div>
+                        <button
+                          onClick={() => setShowTotalViews(!showTotalViews)}
+                          className="p-2 rounded-md hover:bg-muted transition-colors"
+                          title={
+                            showTotalViews
+                              ? "Show 30-day views"
+                              : "Show total views"
+                          }
+                        >
+                          <ArrowLeftRight className="w-4 h-4 text-muted-foreground" />
+                        </button>
                       </div>
                     </CardContent>
                   </Card>
@@ -2031,8 +2115,11 @@ export default function ModelDetailsPage() {
                       </TooltipTrigger>
                       <TooltipContent>
                         <p className="max-w-xs">
-                          Calculated as (Total Subscribers / Page Views) × 100.
-                          Shows how many viewers convert to subscribers
+                          Calculated as (Total Subscribers /{" "}
+                          {showTotalViews
+                            ? "Total Page Views"
+                            : "Page Views (30d)"}
+                          ) × 100. Shows how many viewers convert to subscribers
                         </p>
                       </TooltipContent>
                     </Tooltip>
@@ -2045,14 +2132,14 @@ export default function ModelDetailsPage() {
                           <p className="text-sm text-muted-foreground">
                             Engagement Rate
                           </p>
-                          <p className="text-2xl font-bold">
-                            {model.pageViews30Days && model.totalSubscribers
-                              ? `${(
-                                  (model.totalSubscribers /
-                                    model.pageViews30Days) *
-                                  100
-                                ).toFixed(1)}%`
-                              : "-"}
+                          <p className="text-2xl font-bold transition-all duration-300">
+                            {showTotalViews
+                              ? model.totalViews && model.totalSubscribers
+                                ? `${((model.totalSubscribers / model.totalViews) * 100).toFixed(1)}%`
+                                : "-"
+                              : model.pageViews30Days && model.totalSubscribers
+                                ? `${((model.totalSubscribers / model.pageViews30Days) * 100).toFixed(1)}%`
+                                : "-"}
                           </p>
                         </div>
                       </div>
@@ -2299,19 +2386,18 @@ export default function ModelDetailsPage() {
       </AlertDialog>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-      >
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {deleteTarget?.type === 'discussion' ? 'Delete Discussion?' : 'Delete Comment?'}
+              {deleteTarget?.type === "discussion"
+                ? "Delete Discussion?"
+                : "Delete Comment?"}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {deleteTarget?.type === 'discussion'
-                ? 'Are you sure you want to delete this discussion? This will permanently remove the discussion and all its comments. This action cannot be undone.'
-                : 'Are you sure you want to delete this comment? This action cannot be undone.'}
+              {deleteTarget?.type === "discussion"
+                ? "Are you sure you want to delete this discussion? This will permanently remove the discussion and all its comments. This action cannot be undone."
+                : "Are you sure you want to delete this comment? This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2327,7 +2413,7 @@ export default function ModelDetailsPage() {
                   Deleting...
                 </>
               ) : (
-                'Delete'
+                "Delete"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

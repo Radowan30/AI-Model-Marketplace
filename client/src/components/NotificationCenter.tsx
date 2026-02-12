@@ -9,28 +9,102 @@ interface NotificationCenterProps {
   notifications: Notification[];
   onMarkAsRead: (notificationId: string) => void;
   onMarkAllAsRead: () => void;
+  currentRole?: "buyer" | "publisher";
 }
 
 export function NotificationCenter({
   notifications,
   onMarkAsRead,
   onMarkAllAsRead,
+  currentRole = "buyer",
 }: NotificationCenterProps) {
-  const [filter, setFilter] = useState<"all" | NotificationType>("all");
+  // Filter state differs based on role
+  const [filter, setFilter] = useState<
+    "all" | "subs" | "discuss" | "ratings" | "model_updates"
+  >("all");
 
-  // Filter notifications based on selected tab
-  const filteredNotifications = notifications.filter((notification) => {
-    if (filter === "all") return true;
-    return notification.type === filter;
+  // First, filter notifications by current role
+  const roleFilteredNotifications = notifications.filter((notification) => {
+    if (currentRole === "publisher") {
+      // Publishers only see these notification types
+      const publisherNotificationTypes = [
+        "new_subscription",
+        "collaborator_subscription",
+        "new_discussion",
+        "new_comment",
+        "comment_reply",
+        "new_rating",
+      ];
+      return publisherNotificationTypes.includes(notification.type);
+    } else if (currentRole === "buyer") {
+      // Buyers only see these notification types
+      const buyerNotificationTypes = [
+        "comment_reply",
+        "model_updated",
+        "subscription_success",
+      ];
+      return buyerNotificationTypes.includes(notification.type);
+    }
+    return false;
   });
 
-  // Get counts for each category
-  const unreadCount = notifications.filter((n) => !n.isRead).length;
-  const publisherNotifications = notifications.filter((n) =>
-    ["new_subscription", "discussion_message", "model_rating_changed"].includes(n.type)
+  // Calculate counts based on role-filtered notifications
+  const unreadCount = roleFilteredNotifications.filter((n) => !n.isRead).length;
+
+  // Publisher-specific counts
+  const subsNotifications = roleFilteredNotifications.filter((n) =>
+    ["new_subscription", "collaborator_subscription"].includes(n.type),
   );
-  const buyerNotifications = notifications.filter((n) =>
-    ["subscription_success", "discussion_reply", "model_updated"].includes(n.type)
+
+  const ratingNotifications = roleFilteredNotifications.filter(
+    (n) => n.type === "new_rating",
+  );
+
+  // Role-aware discussion notifications
+  const discussNotifications =
+    currentRole === "publisher"
+      ? roleFilteredNotifications.filter((n) =>
+          ["new_discussion", "new_comment", "comment_reply"].includes(n.type),
+        )
+      : roleFilteredNotifications.filter(
+          (n) => n.type === "comment_reply", // Buyers only see comment replies
+        );
+
+  // Buyer-specific counts
+  const modelUpdateNotifications = roleFilteredNotifications.filter(
+    (n) => n.type === "model_updated",
+  );
+
+  // Then apply Notification tab-specific filtering
+  const filteredNotifications = roleFilteredNotifications.filter(
+    (notification) => {
+      if (filter === "all") return true;
+
+      if (currentRole === "publisher") {
+        if (filter === "subs") {
+          return ["new_subscription", "collaborator_subscription"].includes(
+            notification.type,
+          );
+        }
+        if (filter === "discuss") {
+          return ["new_discussion", "new_comment", "comment_reply"].includes(
+            notification.type,
+          );
+        }
+        if (filter === "ratings") {
+          return notification.type === "new_rating";
+        }
+      } else if (currentRole === "buyer") {
+        if (filter === "discuss") {
+          return notification.type === "comment_reply";
+        }
+        if (filter === "model_updates") {
+          return notification.type === "model_updated";
+        }
+      }
+
+      return false;
+    },
   );
 
   return (
@@ -57,21 +131,60 @@ export function NotificationCenter({
         )}
       </div>
 
-      {/* Tabs for filtering */}
-      <Tabs value={filter} onValueChange={(value) => setFilter(value as "all" | NotificationType)}>
+      {/* Tabs for filtering - Role-specific */}
+      <Tabs
+        value={filter}
+        onValueChange={(value) =>
+          setFilter(
+            value as "all" | "subs" | "discuss" | "ratings" | "model_updates",
+          )
+        }
+      >
         <TabsList className="w-full justify-start rounded-none border-b h-auto p-0 flex-wrap">
-          <TabsTrigger value="all" className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs sm:text-sm px-2 sm:px-4">
-            All ({notifications.length})
+          <TabsTrigger
+            value="all"
+            className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs sm:text-sm px-2 sm:px-4"
+          >
+            All ({roleFilteredNotifications.length})
           </TabsTrigger>
-          <TabsTrigger value="new_subscription" className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs sm:text-sm px-2 sm:px-4">
-            Subs ({publisherNotifications.filter(n => n.type === 'new_subscription').length})
-          </TabsTrigger>
-          <TabsTrigger value="discussion_message" className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs sm:text-sm px-2 sm:px-4">
-            Discuss ({notifications.filter(n => ['discussion_message', 'discussion_reply'].includes(n.type)).length})
-          </TabsTrigger>
-          <TabsTrigger value="model_updated" className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs sm:text-sm px-2 sm:px-4">
-            Updates ({notifications.filter(n => ['model_updated', 'model_rating_changed'].includes(n.type)).length})
-          </TabsTrigger>
+
+          {currentRole === "publisher" ? (
+            <>
+              <TabsTrigger
+                value="subs"
+                className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs sm:text-sm px-2 sm:px-4"
+              >
+                Subs ({subsNotifications.length})
+              </TabsTrigger>
+              <TabsTrigger
+                value="discuss"
+                className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs sm:text-sm px-2 sm:px-4"
+              >
+                Discuss ({discussNotifications.length})
+              </TabsTrigger>
+              <TabsTrigger
+                value="ratings"
+                className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs sm:text-sm px-2 sm:px-4"
+              >
+                Ratings ({ratingNotifications.length})
+              </TabsTrigger>
+            </>
+          ) : (
+            <>
+              <TabsTrigger
+                value="discuss"
+                className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs sm:text-sm px-2 sm:px-4"
+              >
+                Discuss ({discussNotifications.length})
+              </TabsTrigger>
+              <TabsTrigger
+                value="model_updates"
+                className="rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs sm:text-sm px-2 sm:px-4"
+              >
+                Model Updates ({modelUpdateNotifications.length})
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         <TabsContent value={filter} className="m-0">

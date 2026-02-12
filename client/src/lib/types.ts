@@ -5,8 +5,8 @@ export interface User {
   name: string;
   email: string;
   role: UserRole;
-  avatar?: string;
-  company?: string;
+  company_name?: string;
+  phone?: string;
   bio?: string;
 }
 
@@ -17,11 +17,11 @@ export interface Subscription {
   modelId: string;
   buyerId: string;
   status: SubscriptionStatus;
-  startDate: string;
-  cancelledDate?: string;
+  subscribedAt: string;
+  cancelledAt?: string;
 }
 
-export type ModelStatus = 'draft' | 'published' | 'archived';
+export type ModelStatus = 'draft' | 'published';
 
 export interface Category {
   id: string;
@@ -47,13 +47,11 @@ export interface Model {
   status: ModelStatus;
   price: 'free' | 'paid';
   priceAmount?: number; // Price in MYR (only for paid models)
-  tags: string[];
   stats: {
     views: number;
     downloads: number;
     accuracy: number;
     responseTime: number; // in ms
-    uptime: number; // percentage
   };
   features: string[];
   updatedAt: string;
@@ -62,9 +60,24 @@ export interface Model {
   apiDocumentation?: string; // API docs in markdown, JSON, or plain text
   apiSpecFormat?: "json" | "yaml" | "markdown" | "text"; // Format of API specification
   pageViews30Days: number;
+  totalViews: number;
   activeSubscribers: number;
   totalSubscribers: number;
   discussionCount: number;
+  averageRating: number;
+  totalRatingCount: number;
+}
+
+export interface Comment {
+  id: string;
+  modelId: string;
+  userId: string;
+  userName: string;
+  content: string;
+  date: string;
+  parentCommentId?: string | null;
+  recipientUserId?: string | null;
+  recipientUserName?: string | null;
 }
 
 export interface Discussion {
@@ -72,18 +85,21 @@ export interface Discussion {
   modelId: string;
   userId: string;
   userName: string;
+  title?: string;
   content: string;
   date: string;
-  replies?: Discussion[];
+  replies?: Comment[];
 }
 
 export type NotificationType =
-  | 'new_subscription'      // Publisher: new subscriber
-  | 'discussion_message'    // Publisher: new message in their model's discussion
-  | 'model_rating_changed'  // Publisher: rating updated
-  | 'subscription_success'  // Buyer: successfully subscribed
-  | 'discussion_reply'      // Buyer: reply to their discussion message
-  | 'model_updated';        // Buyer: subscribed model updated
+  | 'new_subscription'           // Publisher: new subscriber to owned model
+  | 'collaborator_subscription'  // Publisher: new subscriber to collaborator model
+  | 'new_discussion'             // Publisher: new discussion on their model
+  | 'new_comment'                // Publisher: new comment on their model
+  | 'comment_reply'              // Publisher/Buyer: reply to their comment
+  | 'new_rating'                 // Publisher: new rating on their model
+  | 'subscription_success'       // Buyer: successfully subscribed
+  | 'model_updated';             // Buyer: subscribed model updated
 
 export interface Notification {
   id: string;
@@ -99,10 +115,17 @@ export interface Notification {
   metadata?: {
     subscriberName?: string;
     subscriberEmail?: string;
+    isCollaboratorModel?: boolean;
+    raterName?: string;
+    rating?: number;
     oldRating?: number;
     newRating?: number;
-    updatedFields?: string[];
-    discussionTitle?: string;
+    commenterName?: string;
+    commentPreview?: string;
     replyAuthor?: string;
+    updatedFields?: string[];
+    updatedField?: string;
+    oldValue?: any;
+    newValue?: any;
   };
 }

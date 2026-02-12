@@ -40,57 +40,61 @@ function Router() {
 
       {/* Publisher Routes */}
       <Route path="/publisher/dashboard">
-        <ProtectedRoute allowedRoles={['publisher']}>
+        <ProtectedRoute allowedRoles={["publisher"]}>
           <PublisherDashboard />
         </ProtectedRoute>
       </Route>
       <Route path="/publisher/my-models">
-        <ProtectedRoute allowedRoles={['publisher']}>
+        <ProtectedRoute allowedRoles={["publisher"]}>
           <MyModelsPage />
         </ProtectedRoute>
       </Route>
       <Route path="/publisher/create-model">
-        <ProtectedRoute allowedRoles={['publisher']}>
+        <ProtectedRoute allowedRoles={["publisher"]}>
           <CreateModelPage />
         </ProtectedRoute>
       </Route>
       <Route path="/publisher/edit-model/:id">
-        <ProtectedRoute allowedRoles={['publisher']}>
+        <ProtectedRoute allowedRoles={["publisher"]}>
           <EditModelPage />
         </ProtectedRoute>
       </Route>
       <Route path="/publisher/settings">
-        <ProtectedRoute allowedRoles={['publisher']}>
+        <ProtectedRoute allowedRoles={["publisher"]}>
           <SettingsPage />
         </ProtectedRoute>
       </Route>
-      
+      <Route path="/marketplace-preview">
+        <ProtectedRoute allowedRoles={["publisher"]}>
+          <MarketplacePage />
+        </ProtectedRoute>
+      </Route>
+
       {/* Buyer Routes */}
       <Route path="/buyer/dashboard">
-        <ProtectedRoute allowedRoles={['buyer']}>
+        <ProtectedRoute allowedRoles={["buyer"]}>
           <BuyerDashboard />
         </ProtectedRoute>
       </Route>
       <Route path="/buyer/my-subscriptions">
-        <ProtectedRoute allowedRoles={['buyer']}>
+        <ProtectedRoute allowedRoles={["buyer"]}>
           <MySubscriptionsPage />
         </ProtectedRoute>
       </Route>
       <Route path="/buyer/settings">
-        <ProtectedRoute allowedRoles={['buyer']}>
+        <ProtectedRoute allowedRoles={["buyer"]}>
           <BuyerSettingsPage />
         </ProtectedRoute>
       </Route>
-      
-      {/* Shared Routes */}
-      <Route path="/marketplace" component={MarketplacePage} />
-      <Route path="/marketplace-preview">
-        <ProtectedRoute allowedRoles={['publisher']}>
+      <Route path="/marketplace">
+        <ProtectedRoute allowedRoles={["buyer"]}>
           <MarketplacePage />
         </ProtectedRoute>
       </Route>
+
+      {/* Shared Routes */}
       <Route path="/model/:id" component={ModelDetailsPage} />
-      
+
       <Route component={NotFound} />
     </Switch>
   );

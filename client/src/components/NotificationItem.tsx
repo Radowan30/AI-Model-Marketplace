@@ -29,13 +29,13 @@ export function NotificationItem({
     switch (notification.type) {
       case "new_subscription":
         return <UserPlus className="w-5 h-5 text-blue-500" />;
-      case "discussion_message":
+      case "new_discussion":
         return <MessageSquare className="w-5 h-5 text-purple-500" />;
-      case "model_rating_changed":
+      case "new_rating":
         return <Star className="w-5 h-5 text-yellow-500" />;
       case "subscription_success":
         return <CheckCircle className="w-5 h-5 text-green-500" />;
-      case "discussion_reply":
+      case "comment_reply":
         return <MessageCircle className="w-5 h-5 text-indigo-500" />;
       case "model_updated":
         return <RefreshCw className="w-5 h-5 text-orange-500" />;
@@ -112,7 +112,7 @@ export function NotificationItem({
                 notification.metadata.subscriberEmail && (
                   <span className="truncate block">from {notification.metadata.subscriberEmail}</span>
                 )}
-              {notification.type === "model_rating_changed" &&
+              {notification.type === "new_rating" &&
                 notification.metadata.oldRating !== undefined &&
                 notification.metadata.newRating !== undefined && (
                   <span className="whitespace-nowrap">
@@ -125,7 +125,7 @@ export function NotificationItem({
                     Updated: {notification.metadata.updatedFields.join(", ")}
                   </span>
                 )}
-              {notification.type === "discussion_reply" &&
+              {notification.type === "comment_reply" &&
                 notification.metadata.replyAuthor && (
                   <span className="truncate block">Reply from {notification.metadata.replyAuthor}</span>
                 )}

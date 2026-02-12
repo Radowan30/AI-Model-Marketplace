@@ -9,7 +9,7 @@ interface ProtectedRouteProps {
 }
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const { user, userRoles, loading } = useAuth();
+  const { user, currentRole, loading } = useAuth();
 
   // Check if registration or login is in progress
   const isRegistering = typeof window !== 'undefined' && localStorage.getItem('isRegistering') === 'true';
@@ -34,8 +34,8 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     return <Redirect to="/auth" />;
   }
 
-  // Check if user has at least one of the allowed roles
-  if (allowedRoles && !userRoles.some(role => allowedRoles.includes(role as 'buyer' | 'publisher'))) {
+  // Check if user's current role is in the allowed roles
+  if (allowedRoles && currentRole && !allowedRoles.includes(currentRole as 'buyer' | 'publisher')) {
     return <Redirect to="/" />;
   }
 

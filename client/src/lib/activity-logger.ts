@@ -1,19 +1,6 @@
 import { supabase } from './supabase';
 
-/**
- * Activity Logger Utilities
- *
- * This library provides functions for logging and fetching user activities.
- * Activities are tracked in the user_activities table in Supabase.
- *
- * Supported Activity Types (Buyer-focused):
- * - subscribed: User subscribed to a model
- * - unsubscribed: User cancelled subscription
- * - downloaded: User downloaded a file
- * - commented: User posted a comment/discussion
- * - rated: User rated a model
- */
-
+// User activity types tracked in the system
 export type ActivityType =
   | 'subscribed'
   | 'unsubscribed'
@@ -21,6 +8,7 @@ export type ActivityType =
   | 'commented'
   | 'rated';
 
+// Activity record returned from the database (after transformation)
 export interface Activity {
   id: string;
   userId: string;
@@ -34,6 +22,7 @@ export interface Activity {
   createdAt: string;
 }
 
+// Parameters for logging a new activity
 interface LogActivityParams {
   userId: string;
   activityType: ActivityType;
@@ -48,28 +37,15 @@ interface LogActivityParams {
 /**
  * Log a user activity to the database
  *
- * This function inserts a new activity record into the user_activities table.
- * Activity logging is non-blocking - errors are logged but not thrown.
- *
- * @param params - Activity parameters
- * @returns Promise<void>
- *
- * @example
- * await logActivity({
- *   userId: user.id,
- *   activityType: 'subscribed',
- *   title: 'Subscribed to GPT-4 Vision API',
- *   description: 'Free subscription',
- *   modelId: 'model-123',
- *   modelName: 'GPT-4 Vision API',
- *   role: 'buyer'
- * });
+ * Note: This is a non-blocking operation - if logging fails, the error is logged
+ * but not thrown, ensuring the main user action can still succeed.
  */
 export async function logActivity(params: LogActivityParams): Promise<void> {
   try {
     const { error } = await supabase
       .from('user_activities')
       .insert({
+        // Transform camelCase params to snake_case for database
         user_id: params.userId,
         activity_type: params.activityType,
         title: params.title,
@@ -77,37 +53,21 @@ export async function logActivity(params: LogActivityParams): Promise<void> {
         model_id: params.modelId,
         model_name: params.modelName,
         role: params.role,
-        metadata: params.metadata,
-        created_at: new Date().toISOString()
+        metadata: params.metadata
       });
 
     if (error) throw error;
   } catch (error) {
+    // Swallow errors - activity logging failures shouldn't break the main user action
     console.error('Error logging activity:', error);
-    // Don't throw - activity logging should be non-blocking
-    // The main user action should succeed even if activity logging fails
   }
 }
 
 /**
- * Fetch user activities (with pagination and role filtering)
+ * Fetch user activities with pagination and role filtering
  *
- * Retrieves activities for a specific user and role, sorted by creation date (newest first).
- * Role filtering ensures publisher activities don't show in buyer dashboard and vice versa.
- * Supports pagination via limit and offset parameters.
- *
- * @param userId - The user's ID
- * @param role - The role to filter by ('buyer' or 'publisher')
- * @param limit - Maximum number of activities to fetch (default: 20)
- * @param offset - Number of activities to skip (default: 0)
- * @returns Promise<Activity[]>
- *
- * @example
- * // Fetch first 20 buyer activities
- * const activities = await fetchUserActivities(user.id, 'buyer');
- *
- * // Fetch next 20 activities
- * const moreActivities = await fetchUserActivities(user.id, 'buyer', 20, 20);
+ * Returns activities for a specific user and role, sorted newest first.
+ * Role filtering ensures buyer activities don't show in publisher dashboard (and vice versa).
  */
 export async function fetchUserActivities(
   userId: string,
@@ -122,11 +82,11 @@ export async function fetchUserActivities(
       .eq('user_id', userId)
       .eq('role', role)
       .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .range(offset, offset + limit - 1); // Supabase pagination (inclusive range)
 
     if (error) throw error;
 
-    // Transform to match Activity interface
+    // Transform database snake_case to TypeScript camelCase
     return (data || []).map(activity => ({
       id: activity.id,
       userId: activity.user_id,
@@ -141,160 +101,7 @@ export async function fetchUserActivities(
     }));
   } catch (error) {
     console.error('Error fetching activities:', error);
-    return [];
+    return []; // Return empty array on error (non-blocking)
   }
 }
 
-/**
- * Fetch activities by type
- *
- * Retrieves activities of a specific type for a user and role.
- * Useful for filtering activities by action (e.g., only subscriptions).
- * Role filtering ensures publisher activities don't show in buyer dashboard and vice versa.
- *
- * @param userId - The user's ID
- * @param role - The role to filter by ('buyer' or 'publisher')
- * @param activityType - The type of activity to filter by
- * @param limit - Maximum number of activities to fetch (default: 10)
- * @returns Promise<Activity[]>
- *
- * @example
- * // Fetch last 10 buyer subscription activities
- * const subscriptions = await fetchActivitiesByType(user.id, 'buyer', 'subscribed');
- */
-export async function fetchActivitiesByType(
-  userId: string,
-  role: 'buyer' | 'publisher',
-  activityType: ActivityType,
-  limit: number = 10
-): Promise<Activity[]> {
-  try {
-    const { data, error } = await supabase
-      .from('user_activities')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('role', role)
-      .eq('activity_type', activityType)
-      .order('created_at', { ascending: false })
-      .limit(limit);
-
-    if (error) throw error;
-
-    // Transform to match Activity interface
-    return (data || []).map(activity => ({
-      id: activity.id,
-      userId: activity.user_id,
-      activityType: activity.activity_type,
-      title: activity.title,
-      description: activity.description,
-      modelId: activity.model_id,
-      modelName: activity.model_name,
-      role: activity.role,
-      metadata: activity.metadata,
-      createdAt: activity.created_at
-    }));
-  } catch (error) {
-    console.error('Error fetching activities by type:', error);
-    return [];
-  }
-}
-
-/**
- * Delete old activities (cleanup utility)
- *
- * Removes activities older than 90 days for a specific user.
- * This helps keep the database clean and maintains performance.
- *
- * Recommended to run periodically (e.g., monthly) or on user request.
- *
- * @param userId - The user's ID
- * @returns Promise<void>
- *
- * @example
- * // Clean up old activities for current user
- * await cleanupOldActivities(user.id);
- */
-export async function cleanupOldActivities(userId: string): Promise<void> {
-  const ninetyDaysAgo = new Date();
-  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-
-  try {
-    const { error } = await supabase
-      .from('user_activities')
-      .delete()
-      .eq('user_id', userId)
-      .lt('created_at', ninetyDaysAgo.toISOString());
-
-    if (error) throw error;
-  } catch (error) {
-    console.error('Error cleaning up old activities:', error);
-  }
-}
-
-/**
- * Get total activity count for a user and role
- *
- * Returns the total number of activities for a user filtered by role.
- * Useful for pagination and statistics.
- *
- * @param userId - The user's ID
- * @param role - The role to filter by ('buyer' or 'publisher')
- * @returns Promise<number>
- *
- * @example
- * const totalActivities = await getActivityCount(user.id, 'buyer');
- * const totalPages = Math.ceil(totalActivities / 20);
- */
-export async function getActivityCount(userId: string, role: 'buyer' | 'publisher'): Promise<number> {
-  try {
-    const { count, error } = await supabase
-      .from('user_activities')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('role', role);
-
-    if (error) throw error;
-    return count || 0;
-  } catch (error) {
-    console.error('Error getting activity count:', error);
-    return 0;
-  }
-}
-
-/**
- * Integration Guide:
- *
- * To integrate activity logging into your application:
- *
- * 1. Import the logActivity function:
- *    ```typescript
- *    import { logActivity } from '@/lib/activity-logger';
- *    ```
- *
- * 2. Call logActivity after successful user actions (pass current role):
- *    ```typescript
- *    // After subscription (buyer role)
- *    await logActivity({
- *      userId: user.id,
- *      activityType: 'subscribed',
- *      title: `Subscribed to ${model.model_name}`,
- *      description: 'Free subscription',
- *      modelId: model.id,
- *      modelName: model.model_name,
- *      role: currentRole // Pass the user's current role
- *    });
- *    ```
- *
- * 3. Fetch activities in components (filter by current role):
- *    ```typescript
- *    import { fetchUserActivities } from '@/lib/activity-logger';
- *
- *    const activities = await fetchUserActivities(user.id, currentRole, 20);
- *    setRecentActivities(activities);
- *    ```
- *
- * 4. Display activities with proper UI formatting
- *    - Show icons based on activityType
- *    - Format timestamps as relative time
- *    - Link to related models via modelId
- */

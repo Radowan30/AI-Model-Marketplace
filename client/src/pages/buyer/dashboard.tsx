@@ -1,8 +1,8 @@
 import { Layout } from "@/components/layout/Layout";
 import { StatsCard } from "@/components/StatsCard";
 import { useAuth } from "@/hooks/use-auth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Store, ShoppingBag, Search, Package, CheckCircle, XCircle, Download, MessageSquare, ArrowRight, ChevronDown, ChevronUp, Activity, Star } from "lucide-react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Store, ShoppingBag, Search, Package, CheckCircle, XCircle, Download, MessageSquare, ArrowRight, ChevronDown, ChevronUp, Activity, Star, Loader2 } from "lucide-react";
 import { ModelCard } from "@/components/ModelCard";
 import { Button } from "@/components/ui/button";
 import { Link } from "wouter";
@@ -240,13 +240,13 @@ export default function BuyerDashboard() {
              title="Available Models in Marketplace"
              value={marketplaceModelsCount}
              icon={Store}
-             description="models to explore"
+             isLoading={loading}
            />
            <StatsCard
              title="My Subscriptions"
              value={activeSubs.length}
              icon={ShoppingBag}
-             description="active subscriptions"
+             isLoading={loading}
            />
         </div>
 
@@ -303,7 +303,11 @@ export default function BuyerDashboard() {
            </div>
            
            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {subscribedModels.length > 0 ? (
+              {loading ? (
+                <div className="col-span-full py-12 text-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary mx-auto" />
+                </div>
+              ) : subscribedModels.length > 0 ? (
                  subscribedModels.map((model: any) => (
                     <ModelCard key={model.id} model={model} subscribed={true} />
                  ))
@@ -321,7 +325,15 @@ export default function BuyerDashboard() {
         {/* Recent Activity Section */}
         <div>
           <h2 className="text-xl font-bold mb-4">Recent Activity</h2>
-          {recentActivities.length === 0 ? (
+          {loadingActivities ? (
+            <Card>
+              <CardContent className="p-12">
+                <div className="flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                </div>
+              </CardContent>
+            </Card>
+          ) : recentActivities.length === 0 ? (
             <Card>
               <CardContent className="p-12">
                 <div className="flex flex-col items-center justify-center text-center">

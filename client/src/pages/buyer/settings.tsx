@@ -3,7 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
@@ -29,7 +35,7 @@ export default function BuyerSettingsPage() {
     email: "",
     company: "",
     phone: "",
-    bio: ""
+    bio: "",
   });
 
   // Initialize form with current user data
@@ -40,7 +46,7 @@ export default function BuyerSettingsPage() {
         email: userProfile.email || "",
         company: userProfile.company_name || "",
         phone: userProfile.phone || "",
-        bio: userProfile.bio || ""
+        bio: userProfile.bio || "",
       };
 
       setName(initialValues.name);
@@ -69,15 +75,15 @@ export default function BuyerSettingsPage() {
     try {
       // Update user profile in Supabase
       const { error } = await supabase
-        .from('users')
+        .from("users")
         .update({
           name,
           email,
           company_name: company,
           phone,
-          bio
+          bio,
         })
-        .eq('id', user.id);
+        .eq("id", user.id);
 
       if (error) throw error;
 
@@ -92,10 +98,10 @@ export default function BuyerSettingsPage() {
         email,
         company,
         phone,
-        bio
+        bio,
       });
     } catch (error: any) {
-      console.error('Error saving settings:', error);
+      console.error("Error saving settings:", error);
       toast({
         title: "Error Saving Settings",
         description: error.message || "Failed to update profile.",
@@ -125,7 +131,9 @@ export default function BuyerSettingsPage() {
         {/* Header */}
         <div>
           <h1 className="text-3xl font-heading font-bold">Settings</h1>
-          <p className="text-muted-foreground">Manage your account settings and preferences.</p>
+          <p className="text-muted-foreground">
+            Manage your account settings and preferences.
+          </p>
         </div>
 
         <Separator />
@@ -138,13 +146,16 @@ export default function BuyerSettingsPage() {
               Profile Information
             </CardTitle>
             <CardDescription>
-              Update your personal information and how others see you on the platform.
+              Update your personal information and how others see you on the
+              platform.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label htmlFor="name">Full Name <span className="text-destructive">*</span></Label>
+                <Label htmlFor="name">
+                  Full Name <span className="text-destructive">*</span>
+                </Label>
                 <Input
                   id="name"
                   placeholder="e.g., John Doe"
@@ -154,7 +165,9 @@ export default function BuyerSettingsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email">Email Address <span className="text-destructive">*</span></Label>
+                <Label htmlFor="email">
+                  Email Address <span className="text-destructive">*</span>
+                </Label>
                 <Input
                   id="email"
                   type="email"
@@ -210,10 +223,14 @@ export default function BuyerSettingsPage() {
                 onChange={(e) => setBio(e.target.value.slice(0, 500))}
                 maxLength={500}
               />
-              <p className={cn(
-                "text-xs text-right",
-                bio.length > 450 ? "text-destructive" : "text-muted-foreground"
-              )}>
+              <p
+                className={cn(
+                  "text-xs text-right",
+                  bio.length > 450
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+                )}
+              >
                 {bio.length} / 500 characters
               </p>
             </div>

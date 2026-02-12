@@ -9,6 +9,7 @@ interface UserProfile {
   name: string;
   email: string;
   company_name?: string;
+  phone?: string;
   bio?: string;
   created_at?: string;
   updated_at?: string;

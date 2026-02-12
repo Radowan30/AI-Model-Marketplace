@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -110,7 +111,7 @@
 }
 
 .dark {
-  /* Dark mode mappings (if needed later, but prioritizing light mode per request "Clean white or light grey") */
+  /* Dark mode mappings (if needed later, but prioritizing light for "Clean white or light grey") */
   --background: 313 40% 5%; 
   --foreground: 0 0% 98%;
 
