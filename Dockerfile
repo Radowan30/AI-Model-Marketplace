@@ -44,10 +44,8 @@ RUN npm ci --only=production && \
     npm cache clean --force
 
 # Copy built application from builder stage
+# Both client (dist/public/) and server (dist/index.cjs) are in /app/dist
 COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
-
-# Copy any other necessary files
-COPY --from=builder --chown=nodejs:nodejs /app/client/dist ./client/dist
 
 # Switch to non-root user
 USER nodejs
