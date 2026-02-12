@@ -3,7 +3,7 @@ node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-package-lock.json
+# Keep package-lock.json for npm ci in Docker
 
 # Development files
 .git

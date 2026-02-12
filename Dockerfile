@@ -12,6 +12,8 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install ALL dependencies (including devDependencies for build)
+# Use npm ci for faster, more reliable installs (requires package-lock.json)
+# If package-lock.json is missing, change to: RUN npm install
 RUN npm ci
 
 # Copy source code
