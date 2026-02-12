@@ -4,7 +4,8 @@
 # ============================================
 # Stage 1: Build Stage
 # ============================================
-FROM node:18-alpine AS builder
+# Use Node 20 LTS (required by Supabase, Vite 7, and other packages)
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -25,7 +26,7 @@ RUN npm run build
 # ============================================
 # Stage 2: Production Stage
 # ============================================
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
