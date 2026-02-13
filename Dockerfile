@@ -20,7 +20,16 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the application
+# Accept build arguments for Vite environment variables
+# These must be passed during docker build with --build-arg
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+
+# Set as environment variables so Vite can embed them in the bundle
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
+# Build the application (Vite will embed the VITE_ env vars into JS bundle)
 RUN npm run build
 
 # ============================================
