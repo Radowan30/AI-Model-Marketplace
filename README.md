@@ -147,23 +147,26 @@ The AI Marketplace uses Supabase Storage for model file uploads. You need to cre
      - **File size limit**: `52428800` (50 MB)
    - Click **Create bucket**
 
-2. **Set Up Storage Policies**:
+2. **Set Up Storage Policies** (Choose Method A or Method B):
 
-   Storage policies control who can upload, download, and delete files. Go to the `model-files` bucket → **Policies** tab.
+   Storage policies control who can upload, download, and delete files. You need to create 3 policies total.
 
-   **Policy 1: Allow owners and collaborators to upload**
+   ### Method A: Using SQL Editor (Recommended - Easier)
 
-   Click **New Policy** → **For full customization**:
+   1. In Supabase Dashboard, go to **SQL Editor** (left sidebar)
+   2. Click **New Query**
+   3. Copy and paste ALL THREE policy statements below into the editor
+   4. Click **Run** (or press Ctrl+Enter)
+
    ```sql
+   -- Policy 1: Allow owners and collaborators to upload
    CREATE POLICY "Allow owners and collaborators to upload"
    ON storage.objects FOR INSERT
    TO authenticated
    WITH CHECK (
      bucket_id = 'model-files' AND (
-       -- Allow if user owns the folder (userId/modelId structure)
        (storage.foldername(name))[1] = auth.uid()::text
        OR
-       -- Allow if user is a collaborator on the model
        EXISTS (
          SELECT 1
          FROM models m
@@ -175,21 +178,15 @@ The AI Marketplace uses Supabase Storage for model file uploads. You need to cre
        )
      )
    );
-   ```
 
-   **Policy 2: Allow owners, subscribers, and collaborators to download**
-
-   Click **New Policy** → **For full customization**:
-   ```sql
+   -- Policy 2: Allow owners, subscribers, and collaborators to download
    CREATE POLICY "Allow owners, subscribers, and collaborators to download"
    ON storage.objects FOR SELECT
    TO authenticated
    USING (
      bucket_id = 'model-files' AND (
-       -- Allow if user owns the folder
        (storage.foldername(name))[1] = auth.uid()::text
        OR
-       -- Allow if user has an active subscription to the model
        EXISTS (
          SELECT 1
          FROM model_files mf
@@ -199,7 +196,6 @@ The AI Marketplace uses Supabase Storage for model file uploads. You need to cre
            AND s.status = 'active'
        )
        OR
-       -- Allow if user is a collaborator on the model
        EXISTS (
          SELECT 1
          FROM model_files mf
@@ -210,21 +206,15 @@ The AI Marketplace uses Supabase Storage for model file uploads. You need to cre
        )
      )
    );
-   ```
 
-   **Policy 3: Allow owners and collaborators to delete**
-
-   Click **New Policy** → **For full customization**:
-   ```sql
+   -- Policy 3: Allow owners and collaborators to delete
    CREATE POLICY "Allow owners and collaborators to delete"
    ON storage.objects FOR DELETE
    TO authenticated
    USING (
      bucket_id = 'model-files' AND (
-       -- Allow if user owns the folder
        (storage.foldername(name))[1] = auth.uid()::text
        OR
-       -- Allow if user is a collaborator on the model
        EXISTS (
          SELECT 1
          FROM model_files mf
@@ -236,6 +226,144 @@ The AI Marketplace uses Supabase Storage for model file uploads. You need to cre
      )
    );
    ```
+
+   ✅ You should see "Success. No rows returned" for each policy.
+
+   ---
+
+   ### Method B: Using Storage UI (Alternative)
+
+   If you prefer the UI, create each policy separately:
+
+   #### Policy 1: Upload Policy
+
+   1. Go to **Storage** → `model-files` bucket → **Policies** tab
+   2. Click **New Policy**
+   3. Click **For full customization**
+   4. Fill in the form:
+
+   **Policy name** field - paste:
+   ```
+   Allow owners and collaborators to upload
+   ```
+
+   **Allowed operation** dropdown - select:
+   ```
+   INSERT
+   ```
+
+   **Target roles** dropdown - select:
+   ```
+   authenticated
+   ```
+
+   **WITH CHECK** field - paste this EXACT code:
+   ```sql
+   bucket_id = 'model-files' AND (
+     (storage.foldername(name))[1] = auth.uid()::text
+     OR
+     EXISTS (
+       SELECT 1
+       FROM models m
+       JOIN collaborators c ON c.model_id = m.id
+       JOIN users u ON u.id = auth.uid()
+       WHERE (storage.foldername(objects.name))[1] = m.publisher_id::text
+         AND (storage.foldername(objects.name))[2] = m.id::text
+         AND lower(c.email) = lower(u.email)
+     )
+   )
+   ```
+
+   5. Click **Review** → **Save policy**
+
+   #### Policy 2: Download Policy
+
+   1. Click **New Policy** again
+   2. Click **For full customization**
+   3. Fill in the form:
+
+   **Policy name** field - paste:
+   ```
+   Allow owners, subscribers, and collaborators to download
+   ```
+
+   **Allowed operation** dropdown - select:
+   ```
+   SELECT
+   ```
+
+   **Target roles** dropdown - select:
+   ```
+   authenticated
+   ```
+
+   **USING** field - paste this EXACT code:
+   ```sql
+   bucket_id = 'model-files' AND (
+     (storage.foldername(name))[1] = auth.uid()::text
+     OR
+     EXISTS (
+       SELECT 1
+       FROM model_files mf
+       JOIN subscriptions s ON s.model_id = mf.model_id
+       WHERE mf.file_path = objects.name
+         AND s.buyer_id = auth.uid()
+         AND s.status = 'active'
+     )
+     OR
+     EXISTS (
+       SELECT 1
+       FROM model_files mf
+       JOIN collaborators c ON c.model_id = mf.model_id
+       JOIN users u ON u.id = auth.uid()
+       WHERE mf.file_path = objects.name
+         AND lower(c.email) = lower(u.email)
+     )
+   )
+   ```
+
+   4. Click **Review** → **Save policy**
+
+   #### Policy 3: Delete Policy
+
+   1. Click **New Policy** again
+   2. Click **For full customization**
+   3. Fill in the form:
+
+   **Policy name** field - paste:
+   ```
+   Allow owners and collaborators to delete
+   ```
+
+   **Allowed operation** dropdown - select:
+   ```
+   DELETE
+   ```
+
+   **Target roles** dropdown - select:
+   ```
+   authenticated
+   ```
+
+   **USING** field - paste this EXACT code:
+   ```sql
+   bucket_id = 'model-files' AND (
+     (storage.foldername(name))[1] = auth.uid()::text
+     OR
+     EXISTS (
+       SELECT 1
+       FROM model_files mf
+       JOIN collaborators c ON c.model_id = mf.model_id
+       JOIN users u ON u.id = auth.uid()
+       WHERE mf.file_path = objects.name
+         AND lower(c.email) = lower(u.email)
+     )
+   )
+   ```
+
+   4. Click **Review** → **Save policy**
+
+   ---
 
 3. **Verify Storage Setup**:
 
