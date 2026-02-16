@@ -134,6 +134,131 @@ SELECT table_name FROM information_schema.tables WHERE table_schema = 'public';
 ```
 You should see 15+ tables listed.
 
+#### Set Up Storage Bucket for Model Files
+
+The AI Marketplace uses Supabase Storage for model file uploads. You need to create a storage bucket and configure access policies:
+
+1. **Create Storage Bucket**:
+   - In Supabase Dashboard, go to **Storage** (left sidebar)
+   - Click **New Bucket**
+   - Configure:
+     - **Name**: `model-files`
+     - **Public bucket**: ❌ **Keep disabled** (private bucket with controlled access)
+     - **File size limit**: `52428800` (50 MB)
+   - Click **Create bucket**
+
+2. **Set Up Storage Policies**:
+
+   Storage policies control who can upload, download, and delete files. Go to the `model-files` bucket → **Policies** tab.
+
+   **Policy 1: Allow owners and collaborators to upload**
+
+   Click **New Policy** → **For full customization**:
+   ```sql
+   CREATE POLICY "Allow owners and collaborators to upload"
+   ON storage.objects FOR INSERT
+   TO authenticated
+   WITH CHECK (
+     bucket_id = 'model-files' AND (
+       -- Allow if user owns the folder (userId/modelId structure)
+       (storage.foldername(name))[1] = auth.uid()::text
+       OR
+       -- Allow if user is a collaborator on the model
+       EXISTS (
+         SELECT 1
+         FROM models m
+         JOIN collaborators c ON c.model_id = m.id
+         JOIN users u ON u.id = auth.uid()
+         WHERE (storage.foldername(objects.name))[1] = m.publisher_id::text
+           AND (storage.foldername(objects.name))[2] = m.id::text
+           AND lower(c.email) = lower(u.email)
+       )
+     )
+   );
+   ```
+
+   **Policy 2: Allow owners, subscribers, and collaborators to download**
+
+   Click **New Policy** → **For full customization**:
+   ```sql
+   CREATE POLICY "Allow owners, subscribers, and collaborators to download"
+   ON storage.objects FOR SELECT
+   TO authenticated
+   USING (
+     bucket_id = 'model-files' AND (
+       -- Allow if user owns the folder
+       (storage.foldername(name))[1] = auth.uid()::text
+       OR
+       -- Allow if user has an active subscription to the model
+       EXISTS (
+         SELECT 1
+         FROM model_files mf
+         JOIN subscriptions s ON s.model_id = mf.model_id
+         WHERE mf.file_path = objects.name
+           AND s.buyer_id = auth.uid()
+           AND s.status = 'active'
+       )
+       OR
+       -- Allow if user is a collaborator on the model
+       EXISTS (
+         SELECT 1
+         FROM model_files mf
+         JOIN collaborators c ON c.model_id = mf.model_id
+         JOIN users u ON u.id = auth.uid()
+         WHERE mf.file_path = objects.name
+           AND lower(c.email) = lower(u.email)
+       )
+     )
+   );
+   ```
+
+   **Policy 3: Allow owners and collaborators to delete**
+
+   Click **New Policy** → **For full customization**:
+   ```sql
+   CREATE POLICY "Allow owners and collaborators to delete"
+   ON storage.objects FOR DELETE
+   TO authenticated
+   USING (
+     bucket_id = 'model-files' AND (
+       -- Allow if user owns the folder
+       (storage.foldername(name))[1] = auth.uid()::text
+       OR
+       -- Allow if user is a collaborator on the model
+       EXISTS (
+         SELECT 1
+         FROM model_files mf
+         JOIN collaborators c ON c.model_id = mf.model_id
+         JOIN users u ON u.id = auth.uid()
+         WHERE mf.file_path = objects.name
+           AND lower(c.email) = lower(u.email)
+       )
+     )
+   );
+   ```
+
+3. **Verify Storage Setup**:
+
+   Go to **SQL Editor** and run:
+   ```sql
+   -- Check bucket exists
+   SELECT id, name, public, file_size_limit
+   FROM storage.buckets
+   WHERE name = 'model-files';
+
+   -- Check policies are active (should return 3 policies)
+   SELECT policyname, cmd
+   FROM pg_policies
+   WHERE schemaname = 'storage'
+     AND tablename = 'objects'
+     AND policyname LIKE '%model-files%'
+   ORDER BY policyname;
+   ```
+
+   Expected results:
+   - ✅ Bucket `model-files` exists with `public = false`
+   - ✅ Three policies: INSERT, SELECT, DELETE
+
 ### 4. Configure Environment Variables
 
 1. Copy the example environment file by running this command in your terminal at your project's root directory:
