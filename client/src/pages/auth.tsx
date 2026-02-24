@@ -240,6 +240,7 @@ export default function AuthPage() {
         email,
         password,
         options: {
+          emailRedirectTo: `${window.location.origin}/email-verified`,
           data: {
             name: name
           }
@@ -282,6 +283,17 @@ export default function AuthPage() {
 
         // Don't clear registration flags yet - let AuthContext clear them after fetchUserData completes
         // This prevents ProtectedRoute from redirecting before roles are loaded
+
+        // If session is null, Supabase requires email confirmation before login
+        if (!data.session) {
+          toast({
+            title: "Check your email!",
+            description: `We've sent a verification link to ${email}. Please verify your account before signing in.`,
+          });
+          setLoading(false);
+          setIsRegistering(false);
+          return;
+        }
 
         toast({
           title: "Account created!",
