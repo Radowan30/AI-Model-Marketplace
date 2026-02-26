@@ -1,42 +1,70 @@
 import { Layout } from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { Check } from "lucide-react";
-import generatedImage from '@assets/generated_images/mimos_ai_marketplace_hero_background.png';
+import { Check, Eye, EyeOff } from "lucide-react";
+import generatedImage from "@assets/generated_images/mimos_ai_marketplace_hero_background.png";
 import { supabase } from "@/lib/supabase";
 
 export default function AuthPage() {
   // Read query parameters to determine initial mode and tab
   const urlParams = new URLSearchParams(window.location.search);
-  const mode = urlParams.get('mode');
-  const tab = urlParams.get('tab');
+  const mode = urlParams.get("mode");
+  const tab = urlParams.get("tab");
 
   const [loading, setLoading] = useState(false);
-  const [isRegistering, setIsRegistering] = useState(mode === 'register');
-  const [activeTab, setActiveTab] = useState<string>(tab === 'publisher' ? 'publisher' : 'buyer');
+  const [isRegistering, setIsRegistering] = useState(mode === "register");
+  const [activeTab, setActiveTab] = useState<string>(
+    tab === "publisher" ? "publisher" : "buyer",
+  );
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const [showForgotPassword, setShowForgotPassword] = useState(false);
-  const [resetEmail, setResetEmail] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
   const [sendingReset, setSendingReset] = useState(false);
 
-  const handleRegister = async (e: React.FormEvent, selectedRole: 'buyer' | 'publisher') => {
+  const handleRegister = async (
+    e: React.FormEvent,
+    selectedRole: "buyer" | "publisher",
+  ) => {
     e.preventDefault();
     setLoading(true);
 
     const formData = new FormData(e.target as HTMLFormElement);
-    const name = formData.get(selectedRole === 'buyer' ? 'name' : 'pub-name') as string;
-    const email = formData.get(selectedRole === 'buyer' ? 'email' : 'pub-email') as string;
-    const password = formData.get(selectedRole === 'buyer' ? 'password' : 'pub-password') as string;
-    const confirmPassword = formData.get(selectedRole === 'buyer' ? 'confirm-password' : 'pub-confirm-password') as string;
+    const name = formData.get(
+      selectedRole === "buyer" ? "name" : "pub-name",
+    ) as string;
+    const email = formData.get(
+      selectedRole === "buyer" ? "email" : "pub-email",
+    ) as string;
+    const password = formData.get(
+      selectedRole === "buyer" ? "password" : "pub-password",
+    ) as string;
+    const confirmPassword = formData.get(
+      selectedRole === "buyer" ? "confirm-password" : "pub-confirm-password",
+    ) as string;
 
     // Validate password match
     if (password !== confirmPassword) {
@@ -51,20 +79,20 @@ export default function AuthPage() {
 
     try {
       // Step 1: Set registration flag to prevent AuthContext from auto-signing out during registration
-      localStorage.setItem('isRegistering', 'true');
-      localStorage.setItem('registrationStartTime', Date.now().toString());
+      localStorage.setItem("isRegistering", "true");
+      localStorage.setItem("registrationStartTime", Date.now().toString());
 
       // Step 2: Verify that the role exists in the database BEFORE any user operations
       // This prevents creating orphaned users if roles table is not set up
       const { data: roleCheck, error: roleCheckError } = await supabase
-        .from('roles')
-        .select('id')
-        .eq('role_name', selectedRole)
+        .from("roles")
+        .select("id")
+        .eq("role_name", selectedRole)
         .single();
 
       if (roleCheckError || !roleCheck) {
-        localStorage.removeItem('isRegistering');
-        localStorage.removeItem('registrationStartTime');
+        localStorage.removeItem("isRegistering");
+        localStorage.removeItem("registrationStartTime");
         toast({
           title: "System Configuration Error",
           description: `The ${selectedRole} role is not configured in the database. Please contact support.`,
@@ -76,36 +104,40 @@ export default function AuthPage() {
 
       // Step 3: Store current role in localStorage BEFORE sign in attempt
       // This ensures AuthContext reads the correct role when onAuthStateChange fires
-      localStorage.setItem('currentRole', selectedRole);
+      localStorage.setItem("currentRole", selectedRole);
 
       // Step 3: First check if user already exists by trying to sign in
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password
-      });
+      const { data: signInData, error: signInError } =
+        await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
 
       if (signInData?.user) {
         // User exists with email/password - check providers
-        const { data: { user: authUser }, error: userError } = await supabase.auth.getUser();
+        const {
+          data: { user: authUser },
+          error: userError,
+        } = await supabase.auth.getUser();
 
         if (!userError && authUser) {
           // Check auth providers - if has email provider, account exists with email/password
           const providers = authUser.app_metadata?.providers || [];
 
-          if (providers.includes('email')) {
+          if (providers.includes("email")) {
             // User registered with email/password - check if they already have this role
             const { data: existingRole } = await supabase
-              .from('user_roles')
-              .select('id')
-              .eq('user_id', signInData.user.id)
-              .eq('role_id', roleCheck.id)
+              .from("user_roles")
+              .select("id")
+              .eq("user_id", signInData.user.id)
+              .eq("role_id", roleCheck.id)
               .single();
 
             if (existingRole) {
               // User already has this role - reject registration
-              localStorage.removeItem('currentRole');
-              localStorage.removeItem('isRegistering');
-              localStorage.removeItem('registrationStartTime');
+              localStorage.removeItem("currentRole");
+              localStorage.removeItem("isRegistering");
+              localStorage.removeItem("registrationStartTime");
               await supabase.auth.signOut();
               setLoading(false);
               toast({
@@ -117,33 +149,41 @@ export default function AuthPage() {
             }
 
             // User exists but doesn't have this role - add it
-            console.log('Existing user adding new role using atomic function');
+            console.log("Existing user adding new role using atomic function");
 
-            const { data: result, error: rpcError } = await supabase.rpc('create_user_with_role', {
-              p_user_id: signInData.user.id,
-              p_name: name, // Use name from registration form, not from Google metadata
-              p_email: signInData.user.email || '',
-              p_role_name: selectedRole
-            });
+            const { data: result, error: rpcError } = await supabase.rpc(
+              "create_user_with_role",
+              {
+                p_user_id: signInData.user.id,
+                p_name: name, // Use name from registration form, not from Google metadata
+                p_email: signInData.user.email || "",
+                p_role_name: selectedRole,
+              },
+            );
 
-            console.log('RPC result for existing user:', result);
+            console.log("RPC result for existing user:", result);
 
             if (rpcError) {
-              console.error('RPC error for existing user:', rpcError);
-              localStorage.removeItem('currentRole');
+              console.error("RPC error for existing user:", rpcError);
+              localStorage.removeItem("currentRole");
               throw rpcError;
             }
 
             if (result && !result.success) {
-              console.error('Function returned error for existing user:', result);
-              localStorage.removeItem('currentRole');
-              throw new Error(result.error || 'Failed to add role to existing user');
+              console.error(
+                "Function returned error for existing user:",
+                result,
+              );
+              localStorage.removeItem("currentRole");
+              throw new Error(
+                result.error || "Failed to add role to existing user",
+              );
             }
 
             // Role added successfully - sign out and redirect to login
-            localStorage.removeItem('currentRole');
-            localStorage.removeItem('isRegistering');
-            localStorage.removeItem('registrationStartTime');
+            localStorage.removeItem("currentRole");
+            localStorage.removeItem("isRegistering");
+            localStorage.removeItem("registrationStartTime");
             await supabase.auth.signOut();
 
             setLoading(false);
@@ -163,10 +203,10 @@ export default function AuthPage() {
       if (signInError && !signInData?.user) {
         // Call server API to check if user exists with Google-only and add password
         try {
-          const response = await fetch('/api/auth/add-password', {
-            method: 'POST',
+          const response = await fetch("/api/auth/add-password", {
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({ email, password }),
           });
@@ -174,62 +214,68 @@ export default function AuthPage() {
           const result = await response.json();
 
           if (response.ok && result.success) {
-            console.log('Successfully added password to Google-only account');
+            console.log("Successfully added password to Google-only account");
 
             // Now sign in with the new password
-            const { data: newSignInData, error: newSignInError } = await supabase.auth.signInWithPassword({
-              email,
-              password
-            });
+            const { data: newSignInData, error: newSignInError } =
+              await supabase.auth.signInWithPassword({
+                email,
+                password,
+              });
 
             if (newSignInError || !newSignInData?.user) {
-              throw new Error('Failed to sign in after adding password');
+              throw new Error("Failed to sign in after adding password");
             }
 
             // Check if user has the role
             const { data: existingRole } = await supabase
-              .from('user_roles')
-              .select('id')
-              .eq('user_id', newSignInData.user.id)
-              .eq('role_id', roleCheck.id)
+              .from("user_roles")
+              .select("id")
+              .eq("user_id", newSignInData.user.id)
+              .eq("role_id", roleCheck.id)
               .single();
 
             if (!existingRole) {
               // Add the role
-              const { data: roleResult, error: rpcError } = await supabase.rpc('create_user_with_role', {
-                p_user_id: newSignInData.user.id,
-                p_name: name, // Use name from registration form, not from Google metadata
-                p_email: newSignInData.user.email || '',
-                p_role_name: selectedRole
-              });
+              const { data: roleResult, error: rpcError } = await supabase.rpc(
+                "create_user_with_role",
+                {
+                  p_user_id: newSignInData.user.id,
+                  p_name: name, // Use name from registration form, not from Google metadata
+                  p_email: newSignInData.user.email || "",
+                  p_role_name: selectedRole,
+                },
+              );
 
               if (rpcError || (roleResult && !roleResult.success)) {
-                throw new Error('Failed to add role');
+                throw new Error("Failed to add role");
               }
             }
 
             // Sign out and redirect to login
-            localStorage.removeItem('currentRole');
-            localStorage.removeItem('isRegistering');
-            localStorage.removeItem('registrationStartTime');
+            localStorage.removeItem("currentRole");
+            localStorage.removeItem("isRegistering");
+            localStorage.removeItem("registrationStartTime");
             await supabase.auth.signOut();
 
             setLoading(false);
             toast({
               title: "Email/Password added!",
-              description: `You can now sign in with email and password. ${!existingRole ? `${selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1)} access has been added.` : ''}`,
+              description: `You can now sign in with email and password. ${!existingRole ? `${selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1)} access has been added.` : ""}`,
             });
 
             setIsRegistering(false);
             return;
           } else if (response.status === 404 || response.status === 400) {
             // User doesn't exist with Google-only, continue to normal sign-up
-            console.log('User does not exist with Google-only, proceeding with sign-up');
+            console.log(
+              "User does not exist with Google-only, proceeding with sign-up",
+            );
           } else {
-            console.error('Error from add-password API:', result.error);
+            console.error("Error from add-password API:", result.error);
           }
         } catch (apiError: any) {
-          console.error('API call error:', apiError);
+          console.error("API call error:", apiError);
           // Continue to normal sign-up flow if API fails
         }
       }
@@ -242,58 +288,68 @@ export default function AuthPage() {
         options: {
           emailRedirectTo: `${window.location.origin}/email-verified`,
           data: {
-            name: name
-          }
-        }
+            name: name,
+          },
+        },
       });
 
       if (error) {
-        localStorage.removeItem('currentRole');
+        localStorage.removeItem("currentRole");
         throw error;
       }
 
       if (data.user) {
         // Step 5: Use atomic function to create user and assign role
         // This prevents foreign key constraint violations due to transaction timing
-        console.log('Creating user with role using atomic function');
+        console.log("Creating user with role using atomic function");
 
-        const { data: result, error: rpcError } = await supabase.rpc('create_user_with_role', {
-          p_user_id: data.user.id,
-          p_name: name,
-          p_email: email,
-          p_role_name: selectedRole
-        });
+        const { data: result, error: rpcError } = await supabase.rpc(
+          "create_user_with_role",
+          {
+            p_user_id: data.user.id,
+            p_name: name,
+            p_email: email,
+            p_role_name: selectedRole,
+          },
+        );
 
-        console.log('RPC result:', result);
+        console.log("RPC result:", result);
 
         if (rpcError) {
-          console.error('RPC error:', rpcError);
-          localStorage.removeItem('currentRole');
+          console.error("RPC error:", rpcError);
+          localStorage.removeItem("currentRole");
           throw rpcError;
         }
 
         // Check if the function returned an error
         if (result && !result.success) {
-          console.error('Function returned error:', result);
-          localStorage.removeItem('currentRole');
-          throw new Error(result.error || 'Failed to create user with role');
+          console.error("Function returned error:", result);
+          localStorage.removeItem("currentRole");
+          throw new Error(result.error || "Failed to create user with role");
         }
 
-        console.log('User and role created successfully:', result);
+        console.log("User and role created successfully:", result);
 
-        // Don't clear registration flags yet - let AuthContext clear them after fetchUserData completes
-        // This prevents ProtectedRoute from redirecting before roles are loaded
-
-        // If session is null, Supabase requires email confirmation before login
+        // If email confirmation is enabled, data.session will be null —
+        // the user must verify their email before they can sign in.
+        // Show a toast and keep them on the auth page instead of redirecting
+        // to the dashboard (where there is no valid session yet).
         if (!data.session) {
+          localStorage.removeItem("currentRole");
+          localStorage.removeItem("isRegistering");
+          localStorage.removeItem("registrationStartTime");
+          setLoading(false);
           toast({
             title: "Check your email!",
-            description: `We've sent a verification link to ${email}. Please verify your account before signing in.`,
+            description:
+              "We've sent a verification link to your email address. Please verify your account before logging in.",
           });
-          setLoading(false);
           setIsRegistering(false);
           return;
         }
+
+        // Email confirmation is disabled — proceed straight to the dashboard.
+        // Don't clear registration flags yet - let AuthContext clear them after fetchUserData completes.
 
         toast({
           title: "Account created!",
@@ -301,19 +357,24 @@ export default function AuthPage() {
         });
 
         setLoading(false);
-        setLocation(selectedRole === 'publisher' ? '/publisher/dashboard' : '/buyer/dashboard');
+        setLocation(
+          selectedRole === "publisher"
+            ? "/publisher/dashboard"
+            : "/buyer/dashboard",
+        );
       }
     } catch (error: any) {
       setLoading(false);
-      localStorage.removeItem('currentRole'); // Clean up on any error
-      localStorage.removeItem('isRegistering'); // Clean up registration flags
-      localStorage.removeItem('registrationStartTime');
-      console.error('Registration error:', error);
+      localStorage.removeItem("currentRole"); // Clean up on any error
+      localStorage.removeItem("isRegistering"); // Clean up registration flags
+      localStorage.removeItem("registrationStartTime");
+      console.error("Registration error:", error);
 
       // Show detailed error information
-      const errorMessage = error.message || "An error occurred during registration.";
-      const errorDetails = error.details ? ` Details: ${error.details}` : '';
-      const errorHint = error.hint ? ` Hint: ${error.hint}` : '';
+      const errorMessage =
+        error.message || "An error occurred during registration.";
+      const errorDetails = error.details ? ` Details: ${error.details}` : "";
+      const errorHint = error.hint ? ` Hint: ${error.hint}` : "";
 
       toast({
         title: "Registration failed",
@@ -323,66 +384,75 @@ export default function AuthPage() {
     }
   };
 
-  const handleLogin = async (e: React.FormEvent, selectedRole: 'buyer' | 'publisher') => {
+  const handleLogin = async (
+    e: React.FormEvent,
+    selectedRole: "buyer" | "publisher",
+  ) => {
     e.preventDefault();
     setLoading(true);
 
     const formData = new FormData(e.target as HTMLFormElement);
-    const email = formData.get(selectedRole === 'buyer' ? 'email' : 'pub-email') as string;
-    const password = formData.get(selectedRole === 'buyer' ? 'password' : 'pub-password') as string;
-    const rememberMe = formData.get(selectedRole === 'buyer' ? 'remember' : 'pub-remember') === 'on';
+    const email = formData.get(
+      selectedRole === "buyer" ? "email" : "pub-email",
+    ) as string;
+    const password = formData.get(
+      selectedRole === "buyer" ? "password" : "pub-password",
+    ) as string;
+    const rememberMe =
+      formData.get(selectedRole === "buyer" ? "remember" : "pub-remember") ===
+      "on";
 
     try {
       // Step 1: Set login flag to prevent race conditions with ProtectedRoute
-      localStorage.setItem('isLoggingIn', 'true');
-      localStorage.setItem('loginStartTime', Date.now().toString());
+      localStorage.setItem("isLoggingIn", "true");
+      localStorage.setItem("loginStartTime", Date.now().toString());
 
       // Store Remember Me preference
-      localStorage.setItem('rememberMe', rememberMe ? 'true' : 'false');
+      localStorage.setItem("rememberMe", rememberMe ? "true" : "false");
 
       // Step 2: Store current role in localStorage BEFORE sign in
       // This ensures AuthContext reads the correct role when onAuthStateChange fires
-      localStorage.setItem('currentRole', selectedRole);
+      localStorage.setItem("currentRole", selectedRole);
 
       // Step 2: Sign in with email and password
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
-        password
+        password,
       });
 
       if (error) {
         // Clear localStorage if sign in fails
-        localStorage.removeItem('currentRole');
+        localStorage.removeItem("currentRole");
         throw error;
       }
 
       // Step 3: Get role ID
       const { data: role, error: roleError } = await supabase
-        .from('roles')
-        .select('id')
-        .eq('role_name', selectedRole)
+        .from("roles")
+        .select("id")
+        .eq("role_name", selectedRole)
         .single();
 
       if (roleError || !role) {
-        localStorage.removeItem('currentRole');
-        throw new Error('Role not found');
+        localStorage.removeItem("currentRole");
+        throw new Error("Role not found");
       }
 
       // Step 4: Check if user has the selected role
       const { data: userRole } = await supabase
-        .from('user_roles')
-        .select('id')
-        .eq('user_id', data.user.id)
-        .eq('role_id', role.id)
+        .from("user_roles")
+        .select("id")
+        .eq("user_id", data.user.id)
+        .eq("role_id", role.id)
         .single();
 
       if (!userRole) {
         // User doesn't have this role - clean up and sign out
-        localStorage.removeItem('currentRole');
-        localStorage.removeItem('isLoggingIn');
-        localStorage.removeItem('loginStartTime');
-        localStorage.removeItem('rememberMe'); // Clear remember me on failed login
-        localStorage.removeItem('sessionStartTime'); // Clear session start time
+        localStorage.removeItem("currentRole");
+        localStorage.removeItem("isLoggingIn");
+        localStorage.removeItem("loginStartTime");
+        localStorage.removeItem("rememberMe"); // Clear remember me on failed login
+        localStorage.removeItem("sessionStartTime"); // Clear session start time
         await supabase.auth.signOut();
         setLoading(false);
         toast({
@@ -401,13 +471,17 @@ export default function AuthPage() {
         title: "Welcome back!",
         description: "Successfully logged in.",
       });
-      setLocation(selectedRole === 'publisher' ? '/publisher/dashboard' : '/buyer/dashboard');
+      setLocation(
+        selectedRole === "publisher"
+          ? "/publisher/dashboard"
+          : "/buyer/dashboard",
+      );
     } catch (error: any) {
       setLoading(false);
-      localStorage.removeItem('currentRole'); // Clean up on any error
-      localStorage.removeItem('isLoggingIn'); // Clean up login flags
-      localStorage.removeItem('loginStartTime');
-      console.error('Login error:', error);
+      localStorage.removeItem("currentRole"); // Clean up on any error
+      localStorage.removeItem("isLoggingIn"); // Clean up login flags
+      localStorage.removeItem("loginStartTime");
+      console.error("Login error:", error);
       toast({
         title: "Login failed",
         description: error.message || "Invalid email or password.",
@@ -416,40 +490,40 @@ export default function AuthPage() {
     }
   };
 
-  const handleGoogleLogin = async (selectedRole: 'buyer' | 'publisher') => {
+  const handleGoogleLogin = async (selectedRole: "buyer" | "publisher") => {
     try {
       // Store role in localStorage BEFORE OAuth redirect
       // This ensures when user returns from Google, the role is already set
-      localStorage.setItem('currentRole', selectedRole);
+      localStorage.setItem("currentRole", selectedRole);
 
       // Set OAuth callback flag to prevent AuthContext from signing out
       // while the role is being added in the callback page
-      localStorage.setItem('isRegistering', 'true');
-      localStorage.setItem('registrationStartTime', Date.now().toString());
+      localStorage.setItem("isRegistering", "true");
+      localStorage.setItem("registrationStartTime", Date.now().toString());
 
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
+        provider: "google",
         options: {
           redirectTo: `${window.location.origin}/auth/callback?role=${selectedRole}`,
           queryParams: {
-            access_type: 'offline',
-            prompt: 'consent',
+            access_type: "offline",
+            prompt: "consent",
           },
         },
       });
 
       if (error) {
-        localStorage.removeItem('currentRole');
-        localStorage.removeItem('isRegistering');
-        localStorage.removeItem('registrationStartTime');
+        localStorage.removeItem("currentRole");
+        localStorage.removeItem("isRegistering");
+        localStorage.removeItem("registrationStartTime");
         throw error;
       }
     } catch (error: any) {
-      console.error('OAuth error:', error);
+      console.error("OAuth error:", error);
       toast({
-        title: 'Authentication failed',
-        description: 'Unable to sign in with Google',
-        variant: 'destructive',
+        title: "Authentication failed",
+        description: "Unable to sign in with Google",
+        variant: "destructive",
       });
     }
   };
@@ -477,12 +551,13 @@ export default function AuthPage() {
         description: "Check your email for the password reset link.",
       });
       setShowForgotPassword(false);
-      setResetEmail('');
+      setResetEmail("");
     } catch (error: any) {
-      console.error('Password reset error:', error);
+      console.error("Password reset error:", error);
       toast({
         title: "Reset failed",
-        description: error.message || "Failed to send reset email. Please try again.",
+        description:
+          error.message || "Failed to send reset email. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -493,7 +568,7 @@ export default function AuthPage() {
   return (
     <Layout type="public">
       <div className="min-h-[calc(100vh-64px)] flex items-center justify-center p-6 bg-secondary/20 relative">
-         <div className="absolute inset-0 z-0 opacity-5 pointer-events-none">
+        <div className="absolute inset-0 z-0 opacity-5 pointer-events-none">
           <img
             src={generatedImage}
             alt=""
@@ -504,7 +579,9 @@ export default function AuthPage() {
         <Card className="w-full max-w-md shadow-xl border-border/50 relative z-10">
           <CardHeader className="text-center space-y-2">
             <div className="mx-auto w-12 h-12 bg-primary rounded-lg flex items-center justify-center shadow-md mb-2">
-              <span className="text-primary-foreground font-bold text-xl">M</span>
+              <span className="text-primary-foreground font-bold text-xl">
+                M
+              </span>
             </div>
             <CardTitle className="text-2xl font-heading">
               {isRegistering ? "Create Account" : "Welcome to MIMOS"}
@@ -512,28 +589,50 @@ export default function AuthPage() {
             <CardDescription>
               {isRegistering
                 ? "Register to start managing AI models or subscribe to services"
-                : "Login to manage models or subscribe to AI services"
-              }
+                : "Login to manage models or subscribe to AI services"}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+              className="w-full"
+            >
               <TabsList className="grid w-full grid-cols-2 mb-6">
                 <TabsTrigger value="buyer">Buyer Portal</TabsTrigger>
                 <TabsTrigger value="publisher">Publisher Portal</TabsTrigger>
               </TabsList>
 
               <TabsContent value="buyer">
-                <form onSubmit={(e) => isRegistering ? handleRegister(e, 'buyer') : handleLogin(e, 'buyer')} className="space-y-4">
+                <form
+                  onSubmit={(e) =>
+                    isRegistering
+                      ? handleRegister(e, "buyer")
+                      : handleLogin(e, "buyer")
+                  }
+                  className="space-y-4"
+                >
                   {isRegistering && (
                     <div className="space-y-2">
                       <Label htmlFor="name">Full Name</Label>
-                      <Input id="name" name="name" type="text" placeholder="John Doe" required />
+                      <Input
+                        id="name"
+                        name="name"
+                        type="text"
+                        placeholder="John Doe"
+                        required
+                      />
                     </div>
                   )}
                   <div className="space-y-2">
                     <Label htmlFor="email">Email</Label>
-                    <Input id="email" name="email" type="email" placeholder="name@company.com" required />
+                    <Input
+                      id="email"
+                      name="email"
+                      type="email"
+                      placeholder="name@company.com"
+                      required
+                    />
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -548,31 +647,81 @@ export default function AuthPage() {
                         </button>
                       )}
                     </div>
-                    <Input id="password" name="password" type="password" required />
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        name="password"
+                        type={showPassword ? "text" : "password"}
+                        required
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   {isRegistering && (
                     <div className="space-y-2">
                       <Label htmlFor="confirm-password">Confirm Password</Label>
-                      <Input id="confirm-password" name="confirm-password" type="password" required />
+                      <div className="relative">
+                        <Input
+                          id="confirm-password"
+                          name="confirm-password"
+                          type={showConfirmPassword ? "text" : "password"}
+                          required
+                          className="pr-10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword((v) => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {showConfirmPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
                   {!isRegistering && (
                     <div className="flex items-center space-x-2">
                       <Checkbox id="remember" name="remember" />
-                      <Label htmlFor="remember" className="text-sm font-normal cursor-pointer">
+                      <Label
+                        htmlFor="remember"
+                        className="text-sm font-normal cursor-pointer"
+                      >
                         Remember me (Stay logged in for 7 days)
                       </Label>
                     </div>
                   )}
-                  <Button type="submit" className="w-full mt-2 hover:brightness-110 hover:shadow-lg hover:scale-[1.02] transition-all duration-200" disabled={loading}>
+                  <Button
+                    type="submit"
+                    className="w-full mt-2 hover:brightness-110 hover:shadow-lg hover:scale-[1.02] transition-all duration-200"
+                    disabled={loading}
+                  >
                     {loading
-                      ? (isRegistering ? "Creating account..." : "Logging in...")
-                      : (isRegistering ? "Create Buyer Account" : "Login as Buyer")
-                    }
+                      ? isRegistering
+                        ? "Creating account..."
+                        : "Logging in..."
+                      : isRegistering
+                        ? "Create Buyer Account"
+                        : "Login as Buyer"}
                   </Button>
                   <div className="text-center mt-4 text-sm">
                     <span className="text-muted-foreground">
-                      {isRegistering ? "Already have an account? " : "Don't have an account? "}
+                      {isRegistering
+                        ? "Already have an account? "
+                        : "Don't have an account? "}
                     </span>
                     <button
                       type="button"
@@ -586,27 +735,45 @@ export default function AuthPage() {
               </TabsContent>
 
               <TabsContent value="publisher">
-                <form onSubmit={(e) => isRegistering ? handleRegister(e, 'publisher') : handleLogin(e, 'publisher')} className="space-y-4">
-                   <div className="bg-primary/5 p-4 rounded-md border border-primary/20 mb-4">
-                      <h4 className="text-sm font-semibold text-primary flex items-center gap-2">
-                        <Check className="w-4 h-4" /> Publisher Access
-                      </h4>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {isRegistering
-                          ? "Register to publish AI models, view analytics, and respond to buyer inquiries."
-                          : "Log in to manage your deployed models, view analytics, and respond to buyer inquiries."
-                        }
-                      </p>
-                   </div>
+                <form
+                  onSubmit={(e) =>
+                    isRegistering
+                      ? handleRegister(e, "publisher")
+                      : handleLogin(e, "publisher")
+                  }
+                  className="space-y-4"
+                >
+                  <div className="bg-primary/5 p-4 rounded-md border border-primary/20 mb-4">
+                    <h4 className="text-sm font-semibold text-primary flex items-center gap-2">
+                      <Check className="w-4 h-4" /> Publisher Access
+                    </h4>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {isRegistering
+                        ? "Register to publish AI models, view analytics, and respond to buyer inquiries."
+                        : "Log in to manage your deployed models, view analytics, and respond to buyer inquiries."}
+                    </p>
+                  </div>
                   {isRegistering && (
                     <div className="space-y-2">
                       <Label htmlFor="pub-name">Full Name</Label>
-                      <Input id="pub-name" name="pub-name" type="text" placeholder="Dr. Aminah Hassan" required />
+                      <Input
+                        id="pub-name"
+                        name="pub-name"
+                        type="text"
+                        placeholder="Dr. Aminah Hassan"
+                        required
+                      />
                     </div>
                   )}
                   <div className="space-y-2">
                     <Label htmlFor="pub-email">Institutional Email</Label>
-                    <Input id="pub-email" name="pub-email" type="email" placeholder="name@mimos.my" required />
+                    <Input
+                      id="pub-email"
+                      name="pub-email"
+                      type="email"
+                      placeholder="name@mimos.my"
+                      required
+                    />
                   </div>
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
@@ -621,31 +788,83 @@ export default function AuthPage() {
                         </button>
                       )}
                     </div>
-                    <Input id="pub-password" name="pub-password" type="password" required />
+                    <div className="relative">
+                      <Input
+                        id="pub-password"
+                        name="pub-password"
+                        type={showPassword ? "text" : "password"}
+                        required
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   {isRegistering && (
                     <div className="space-y-2">
-                      <Label htmlFor="pub-confirm-password">Confirm Password</Label>
-                      <Input id="pub-confirm-password" name="pub-confirm-password" type="password" required />
+                      <Label htmlFor="pub-confirm-password">
+                        Confirm Password
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="pub-confirm-password"
+                          name="pub-confirm-password"
+                          type={showConfirmPassword ? "text" : "password"}
+                          required
+                          className="pr-10"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword((v) => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {showConfirmPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
                   {!isRegistering && (
                     <div className="flex items-center space-x-2">
                       <Checkbox id="pub-remember" name="pub-remember" />
-                      <Label htmlFor="pub-remember" className="text-sm font-normal cursor-pointer">
+                      <Label
+                        htmlFor="pub-remember"
+                        className="text-sm font-normal cursor-pointer"
+                      >
                         Remember me (Stay logged in for 7 days)
                       </Label>
                     </div>
                   )}
-                  <Button type="submit" className="w-full mt-2 hover:brightness-110 hover:shadow-lg hover:scale-[1.02] transition-all duration-200" disabled={loading}>
+                  <Button
+                    type="submit"
+                    className="w-full mt-2 hover:brightness-110 hover:shadow-lg hover:scale-[1.02] transition-all duration-200"
+                    disabled={loading}
+                  >
                     {loading
-                      ? (isRegistering ? "Creating account..." : "Logging in...")
-                      : (isRegistering ? "Create Publisher Account" : "Login as Publisher")
-                    }
+                      ? isRegistering
+                        ? "Creating account..."
+                        : "Logging in..."
+                      : isRegistering
+                        ? "Create Publisher Account"
+                        : "Login as Publisher"}
                   </Button>
                   <div className="text-center mt-4 text-sm">
                     <span className="text-muted-foreground">
-                      {isRegistering ? "Already have an account? " : "Don't have an account? "}
+                      {isRegistering
+                        ? "Already have an account? "
+                        : "Don't have an account? "}
                     </span>
                     <button
                       type="button"
@@ -670,7 +889,14 @@ export default function AuthPage() {
               </div>
             </div>
 
-            <Button variant="outline" className="w-full hover:bg-secondary/50 hover:border-primary/30 hover:scale-[1.02] transition-all duration-200" type="button" onClick={() => handleGoogleLogin(activeTab as 'buyer' | 'publisher')}>
+            <Button
+              variant="outline"
+              className="w-full hover:bg-secondary/50 hover:border-primary/30 hover:scale-[1.02] transition-all duration-200"
+              type="button"
+              onClick={() =>
+                handleGoogleLogin(activeTab as "buyer" | "publisher")
+              }
+            >
               <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24">
                 <path
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -701,7 +927,8 @@ export default function AuthPage() {
           <DialogHeader>
             <DialogTitle>Reset Password</DialogTitle>
             <DialogDescription>
-              Enter your email address and we'll send you a link to reset your password.
+              Enter your email address and we'll send you a link to reset your
+              password.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -713,12 +940,15 @@ export default function AuthPage() {
                 placeholder="name@company.com"
                 value={resetEmail}
                 onChange={(e) => setResetEmail(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleForgotPassword()}
+                onKeyDown={(e) => e.key === "Enter" && handleForgotPassword()}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForgotPassword(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowForgotPassword(false)}
+            >
               Cancel
             </Button>
             <Button onClick={handleForgotPassword} disabled={sendingReset}>

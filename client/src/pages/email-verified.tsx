@@ -34,7 +34,12 @@ export default function EmailVerifiedPage() {
         <motion.div
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
-          transition={{ delay: 0.2, type: "spring", stiffness: 200, damping: 15 }}
+          transition={{
+            delay: 0.2,
+            type: "spring",
+            stiffness: 200,
+            damping: 15,
+          }}
           className="w-24 h-24 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center"
         >
           <CheckCircle className="w-12 h-12 text-green-500" />
