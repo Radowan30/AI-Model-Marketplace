@@ -146,7 +146,7 @@ export function Navbar({ layout = "public", onMobileSidebarToggle, mobileSidebar
             <a href="/#features" className="text-sm font-medium hover:text-primary transition-colors">
               Features
             </a>
-            <Link href="/about">
+            <Link href="/about" asChild>
               <a className="text-sm font-medium hover:text-primary transition-colors">About Us</a>
             </Link>
             <Link href="/auth">
@@ -204,7 +204,7 @@ export function Navbar({ layout = "public", onMobileSidebarToggle, mobileSidebar
           <a href="/#features" onClick={() => setMobileMenuOpen(false)} className="text-sm font-medium py-2">
             Features
           </a>
-          <Link href="/about" onClick={() => setMobileMenuOpen(false)}>
+          <Link href="/about" onClick={() => setMobileMenuOpen(false)} asChild>
             <a className="text-sm font-medium py-2">About Us</a>
           </Link>
           <Link href="/auth" onClick={() => setMobileMenuOpen(false)}>

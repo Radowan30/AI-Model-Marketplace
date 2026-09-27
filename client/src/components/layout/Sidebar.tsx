@@ -169,9 +169,13 @@ export function Sidebar({ mobileSidebarOpen = false, onClose }: SidebarProps) {
               location === link.href || location.startsWith(link.href + "/");
 
             return (
-              <Link key={link.href} href={link.href}>
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={handleLinkClick}
+                asChild
+              >
                 <a
-                  onClick={handleLinkClick}
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-md text-sm font-medium transition-all duration-200",
                     isActive

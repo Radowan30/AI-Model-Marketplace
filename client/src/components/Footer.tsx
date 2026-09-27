@@ -16,17 +16,17 @@ export function Footer() {
             </span>
           </div>
           <div className="flex gap-8 text-sm">
-            <Link href="/privacy-policy">
+            <Link href="/privacy-policy" asChild>
               <a className="hover:text-white transition-colors">
                 Privacy Policy
               </a>
             </Link>
-            <Link href="/terms-of-service">
+            <Link href="/terms-of-service" asChild>
               <a className="hover:text-white transition-colors">
                 Terms of Service
               </a>
             </Link>
-            <Link href="/contact-support">
+            <Link href="/contact-support" asChild>
               <a className="hover:text-white transition-colors">
                 Contact Support
               </a>
