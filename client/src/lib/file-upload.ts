@@ -296,10 +296,11 @@ export async function checkFileAccess(
  * Generate signed URL for file download
  */
 export async function getFileDownloadUrl(filePath: string): Promise<string> {
-  // Generate signed URL (expires in 1 hour)
+  // Generate a short-lived signed URL: the app downloads it immediately, and a
+  // leaked URL stays usable (and CDN-cached) for as long as it is valid
   const { data, error } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .createSignedUrl(filePath, 3600);
+    .createSignedUrl(filePath, 60);
 
   if (error) {
     throw new Error(`Failed to generate download URL: ${error.message}`);
