@@ -48,3 +48,39 @@ DROP POLICY IF EXISTS "Model owners and collaborators can view collaborators" ON
 CREATE POLICY "Model owners and collaborators can view collaborators"
 ON public.collaborators FOR SELECT
 USING (public.is_model_owner(model_id) OR lower(email) = public.current_user_email());
+
+-- =====================================================
+-- SECTION 2: MODELS
+-- =====================================================
+
+-- A model can only be created under the caller's own account
+DROP POLICY IF EXISTS "Publishers can create models" ON public.models;
+CREATE POLICY "Publishers can create models"
+ON public.models FOR INSERT
+WITH CHECK (
+  publisher_id = auth.uid()
+  AND EXISTS (
+    SELECT 1 FROM public.user_roles ur
+    JOIN public.roles r ON ur.role_id = r.id
+    WHERE ur.user_id = auth.uid() AND r.role_name = 'publisher'
+  )
+);
+
+-- Ownership never changes after creation
+CREATE OR REPLACE FUNCTION public.prevent_model_owner_change()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path = public
+AS $function$
+BEGIN
+  IF NEW.publisher_id IS DISTINCT FROM OLD.publisher_id THEN
+    RAISE EXCEPTION 'The owner of a model cannot be changed' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS prevent_model_owner_change ON public.models;
+CREATE TRIGGER prevent_model_owner_change
+BEFORE UPDATE OF publisher_id ON public.models
+FOR EACH ROW EXECUTE FUNCTION public.prevent_model_owner_change();
