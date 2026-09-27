@@ -73,12 +73,11 @@ export default function BuyerSettingsPage() {
     if (!user) return;
 
     try {
-      // Update user profile in Supabase
+      // Update user profile in Supabase (the email is the sign-in address and is managed by auth)
       const { error } = await supabase
         .from("users")
         .update({
           name,
-          email,
           company_name: company,
           phone,
           bio,
@@ -173,8 +172,12 @@ export default function BuyerSettingsPage() {
                   type="email"
                   placeholder="email@example.com"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  readOnly
+                  disabled
                 />
+                <p className="text-xs text-muted-foreground">
+                  This is your sign-in email and can't be changed here
+                </p>
               </div>
             </div>
 

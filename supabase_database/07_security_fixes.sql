@@ -498,3 +498,96 @@ USING (
     )
   )
 );
+
+-- =====================================================
+-- SECTION 9: USER PROFILES AND ROLES
+-- =====================================================
+
+-- A profile is visible only to someone with a reason to see it
+CREATE OR REPLACE FUNCTION public.can_view_user(p_target uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path = public
+AS $function$
+  SELECT p_target = auth.uid()
+    -- publishers of listed models (and of drafts the caller collaborates on)
+    OR EXISTS (
+      SELECT 1 FROM public.models m
+      WHERE m.publisher_id = p_target
+        AND (m.status = 'published' OR public.is_collaborator_by_email(m.id))
+    )
+    -- subscribers of models the caller owns or co-manages
+    OR EXISTS (
+      SELECT 1 FROM public.subscriptions s
+      JOIN public.models m ON m.id = s.model_id
+      WHERE s.buyer_id = p_target
+        AND (m.publisher_id = auth.uid() OR public.is_collaborator_by_email(m.id))
+    )
+    -- publishers can see other publishers ("Add Existing Publisher")
+    OR (
+      EXISTS (SELECT 1 FROM public.user_roles ur JOIN public.roles r ON r.id = ur.role_id
+              WHERE ur.user_id = auth.uid() AND r.role_name = 'publisher')
+      AND EXISTS (SELECT 1 FROM public.user_roles ur JOIN public.roles r ON r.id = ur.role_id
+                  WHERE ur.user_id = p_target AND r.role_name = 'publisher')
+    )
+$function$;
+
+DROP POLICY IF EXISTS "Users are viewable by everyone" ON public.users;
+CREATE POLICY "Users see profiles they have a reason to see"
+ON public.users FOR SELECT
+USING (public.can_view_user(id));
+
+-- Profiles are created by the system (sign-up trigger / create_user_with_role)
+DROP POLICY IF EXISTS "Users can insert their own profile" ON public.users;
+
+-- Phone, bio and company are private to their owner (read via get_my_profile)
+REVOKE SELECT ON public.users FROM anon, authenticated;
+GRANT SELECT (id, name, email, created_at, updated_at) ON public.users TO anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.get_my_profile()
+ RETURNS json
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path = public
+AS $function$
+  SELECT json_build_object(
+    'id', u.id, 'name', u.name, 'email', u.email,
+    'company_name', u.company_name, 'phone', u.phone, 'bio', u.bio,
+    'created_at', u.created_at, 'updated_at', u.updated_at
+  )
+  FROM public.users u WHERE u.id = auth.uid()
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.get_my_profile() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.get_my_profile() TO authenticated;
+
+-- The profile email mirrors the login email; users cannot change it directly
+CREATE OR REPLACE FUNCTION public.protect_user_email()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path = public
+AS $function$
+BEGIN
+  IF current_user IN ('anon', 'authenticated') THEN
+    NEW.email := OLD.email;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS protect_user_email ON public.users;
+CREATE TRIGGER protect_user_email
+BEFORE UPDATE OF email ON public.users
+FOR EACH ROW EXECUTE FUNCTION public.protect_user_email();
+
+-- Emails are unique regardless of letter case
+UPDATE public.users SET email = lower(email) WHERE email <> lower(email);
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_key ON public.users (lower(email));
+ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_email_key;
+
+-- Role assignments are only needed by signed-in flows
+REVOKE SELECT ON public.user_roles FROM anon;
+
+-- Unused SECURITY DEFINER view that exposed every user's email and roles
+DROP VIEW IF EXISTS public.user_roles_view;
