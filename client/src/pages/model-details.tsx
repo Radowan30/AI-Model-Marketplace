@@ -80,7 +80,7 @@ export default function ModelDetailsPage() {
   const [, params] = useRoute("/model/:id");
   const modelId = params?.id;
   const { toast } = useToast();
-  const { user, userProfile, currentRole } = useAuth();
+  const { user, userProfile, currentRole, loading: authLoading } = useAuth();
 
   // Model state
   const [model, setModel] = useState<Model | null>(null);
@@ -1189,8 +1189,11 @@ export default function ModelDetailsPage() {
   };
 
   return (
-    <Layout type="dashboard">
-      <div className="max-w-5xl mx-auto space-y-8">
+    // Signed-out visitors get the public site layout; the portal sidebar needs a role
+    <Layout type={user || authLoading ? "dashboard" : "public"}>
+      <div
+        className={`max-w-5xl mx-auto space-y-8 ${user || authLoading ? "" : "px-4 py-8 md:px-8"}`}
+      >
         <Button
           variant="ghost"
           className="gap-2 pl-0 hover:pl-2 transition-all"
