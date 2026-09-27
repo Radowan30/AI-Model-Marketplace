@@ -703,7 +703,7 @@ export default function EditModelPage() {
       let collaboratorSelfRemovalAttempted = false;
       try {
         const currentUserEmail = userProfile?.email || user?.email || "";
-        const isModelOwner = model?.publisher_id === user?.id;
+        const isModelOwner = model?.publisherId === user?.id;
 
         const result = await updateCollaborators(
           modelId,
