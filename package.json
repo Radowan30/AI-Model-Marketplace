@@ -10,7 +10,8 @@
     "start": "cross-env NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "test:security": "node --test --test-concurrency=1 tests/security.test.mjs",
-    "test:cleanup": "node tests/cleanup-test-users.mjs"
+    "test:cleanup": "node tests/cleanup-test-users.mjs",
+    "test:server": "node --test --test-concurrency=1 tests/server.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
