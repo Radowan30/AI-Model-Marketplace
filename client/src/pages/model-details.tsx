@@ -709,12 +709,16 @@ export default function ModelDetailsPage() {
 
       if (deleteTarget.type === "discussion") {
         // Delete entire discussion (cascade will delete all comments)
-        const { error } = await supabase
+        const { data: deletedRows, error } = await supabase
           .from("discussions")
           .delete()
-          .eq("id", deleteTarget.id);
+          .eq("id", deleteTarget.id)
+          .select("id");
 
         if (error) throw error;
+        if (!deletedRows || deletedRows.length === 0) {
+          throw new Error("Discussion was not deleted");
+        }
 
         // Remove from local state
         setDiscussions((prev) => prev.filter((d) => d.id !== deleteTarget.id));
@@ -728,12 +732,16 @@ export default function ModelDetailsPage() {
         });
       } else {
         // Delete individual comment
-        const { error } = await supabase
+        const { data: deletedRows, error } = await supabase
           .from("comments")
           .delete()
-          .eq("id", deleteTarget.id);
+          .eq("id", deleteTarget.id)
+          .select("id");
 
         if (error) throw error;
+        if (!deletedRows || deletedRows.length === 0) {
+          throw new Error("Comment was not deleted");
+        }
 
         // Remove from local state
         setDiscussions((prev) =>

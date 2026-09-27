@@ -151,3 +151,88 @@ DROP TRIGGER IF EXISTS prevent_subscription_key_change ON public.subscriptions;
 CREATE TRIGGER prevent_subscription_key_change
 BEFORE UPDATE ON public.subscriptions
 FOR EACH ROW EXECUTE FUNCTION public.prevent_subscription_key_change();
+
+-- =====================================================
+-- SECTION 4: DISCUSSIONS AND COMMENTS
+-- =====================================================
+
+-- Posts are always made as the caller
+DROP POLICY IF EXISTS "Authenticated users can create discussions" ON public.discussions;
+CREATE POLICY "Users create discussions as themselves"
+ON public.discussions FOR INSERT
+TO authenticated
+WITH CHECK (user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Authenticated users can create comments" ON public.comments;
+CREATE POLICY "Users create comments as themselves"
+ON public.comments FOR INSERT
+TO authenticated
+WITH CHECK (user_id = auth.uid());
+
+-- Display names come from the author's profile, never from the request
+CREATE OR REPLACE FUNCTION public.set_discussion_author_name()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path = public
+AS $function$
+BEGIN
+  NEW.user_name := COALESCE((SELECT u.name FROM public.users u WHERE u.id = NEW.user_id), 'User');
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS set_discussion_author_name ON public.discussions;
+CREATE TRIGGER set_discussion_author_name
+BEFORE INSERT ON public.discussions
+FOR EACH ROW EXECUTE FUNCTION public.set_discussion_author_name();
+
+CREATE OR REPLACE FUNCTION public.set_comment_author_names()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path = public
+AS $function$
+BEGIN
+  NEW.user_name := COALESCE((SELECT u.name FROM public.users u WHERE u.id = NEW.user_id), 'User');
+  IF NEW.parent_comment_id IS NULL THEN
+    NEW.recipient_user_id := NULL;
+    NEW.recipient_user_name := NULL;
+  ELSE
+    SELECT c.user_id, c.user_name
+      INTO NEW.recipient_user_id, NEW.recipient_user_name
+    FROM public.comments c
+    WHERE c.id = NEW.parent_comment_id AND c.discussion_id = NEW.discussion_id;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS set_comment_author_names ON public.comments;
+CREATE TRIGGER set_comment_author_names
+BEFORE INSERT ON public.comments
+FOR EACH ROW EXECUTE FUNCTION public.set_comment_author_names();
+
+REVOKE EXECUTE ON FUNCTION public.set_discussion_author_name() FROM PUBLIC, anon, authenticated;
+REVOKE EXECUTE ON FUNCTION public.set_comment_author_names() FROM PUBLIC, anon, authenticated;
+
+-- The model team can delete discussions and comments (the UI already offers this)
+CREATE POLICY "Model team can delete discussions"
+ON public.discussions FOR DELETE
+TO authenticated
+USING (public.is_model_owner(model_id) OR public.is_collaborator_by_email(model_id));
+
+CREATE POLICY "Model team can delete comments"
+ON public.comments FOR DELETE
+TO authenticated
+USING (EXISTS (
+  SELECT 1 FROM public.discussions d
+  WHERE d.id = comments.discussion_id
+    AND (public.is_model_owner(d.model_id) OR public.is_collaborator_by_email(d.model_id))
+));
+
+-- Deleting a comment keeps its replies
+ALTER TABLE public.comments
+  DROP CONSTRAINT IF EXISTS comments_parent_comment_id_fkey,
+  ADD CONSTRAINT comments_parent_comment_id_fkey
+    FOREIGN KEY (parent_comment_id) REFERENCES public.comments(id) ON DELETE SET NULL;
