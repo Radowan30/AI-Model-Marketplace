@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
+import { MIN_PASSWORD_LENGTH } from "@/lib/utils";
 import { Eye, EyeOff } from "lucide-react";
 
 export default function ResetPasswordPage() {
@@ -90,10 +91,10 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    if (newPassword.length < 6) {
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
       toast({
         title: "Password too short",
-        description: "Password must be at least 6 characters long.",
+        description: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
         variant: "destructive",
       });
       return;
@@ -203,7 +204,7 @@ export default function ResetPasswordPage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={MIN_PASSWORD_LENGTH}
                     className="pr-10"
                   />
                   <button
@@ -229,7 +230,7 @@ export default function ResetPasswordPage() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={MIN_PASSWORD_LENGTH}
                     className="pr-10"
                   />
                   <button

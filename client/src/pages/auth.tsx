@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Check, Eye, EyeOff } from "lucide-react";
 import generatedImage from "@assets/generated_images/mimos_ai_marketplace_hero_background.png";
 import { supabase } from "@/lib/supabase";
+import { MIN_PASSWORD_LENGTH } from "@/lib/utils";
 
 export default function AuthPage() {
   // Read query parameters to determine initial mode and tab
@@ -72,6 +73,16 @@ export default function AuthPage() {
       toast({
         title: "Error",
         description: "Passwords do not match.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setLoading(false);
+      toast({
+        title: "Password too short",
+        description: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
         variant: "destructive",
       });
       return;
