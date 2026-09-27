@@ -821,7 +821,8 @@ export default function EditModelPage() {
         .update({
           status: "published",
           updated_at: new Date().toISOString(),
-          published_on: new Date().toISOString(),
+          // Record the first publication only once
+          ...(model?.publishedDate ? {} : { published_on: new Date().toISOString() }),
         })
         .eq("id", modelId)
         .select("id");
@@ -831,7 +832,11 @@ export default function EditModelPage() {
         throw new Error("You don't have permission to change this model.");
       }
 
-      setModel({ ...model, status: "published" });
+      setModel({
+        ...model,
+        status: "published",
+        publishedDate: model.publishedDate || new Date().toISOString(),
+      });
 
       toast({
         title: "Model Published",

@@ -447,6 +447,8 @@ export default function MyModelsPage() {
         .update({
           status: "published",
           updated_at: new Date().toISOString(),
+          // Record the first publication only once
+          ...(model?.publishedDate ? {} : { published_on: new Date().toISOString() }),
         })
         .eq("id", modelId)
         .select("id");
@@ -458,7 +460,15 @@ export default function MyModelsPage() {
 
       // Update local state to show the change immediately
       setMyModels((prev) =>
-        prev.map((m) => (m.id === modelId ? { ...m, status: "published" } : m)),
+        prev.map((m) =>
+          m.id === modelId
+            ? {
+                ...m,
+                status: "published",
+                publishedDate: m.publishedDate || new Date().toISOString(),
+              }
+            : m,
+        ),
       );
 
       toast({
