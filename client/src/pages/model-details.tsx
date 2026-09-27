@@ -1440,9 +1440,12 @@ export default function ModelDetailsPage() {
             <div>
               <h3 className="text-xl font-bold mb-4">Detailed Description</h3>
               {model.detailedDescription ? (
-                <div className="prose max-w-none text-muted-foreground text-sm whitespace-pre-wrap">
-                  {model.detailedDescription}
-                </div>
+                // The create and edit forms accept Markdown here
+                <ApiSpecRenderer
+                  content={model.detailedDescription}
+                  format="markdown"
+                  className="text-muted-foreground"
+                />
               ) : (
                 <p className="text-muted-foreground text-sm italic">
                   No detailed description provided.
