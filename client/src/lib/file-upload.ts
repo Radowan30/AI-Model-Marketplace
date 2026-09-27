@@ -31,6 +31,20 @@ export function validateFile(file: File): { valid: boolean; error?: string } {
 }
 
 /**
+ * Check an external file link. Returns an error message, or null if the link
+ * is a valid https:// URL.
+ */
+export function validateExternalUrl(url: string): string | null {
+  const message = 'Enter a valid link that starts with https:// (for example https://example.com/model.onnx).';
+  try {
+    const parsed = new URL(url.trim());
+    return parsed.protocol === 'https:' && parsed.hostname ? null : message;
+  } catch {
+    return message;
+  }
+}
+
+/**
  * Format file size for display
  */
 export function formatFileSize(bytes: number): string {
@@ -127,10 +141,9 @@ export async function saveExternalUrl(
   description?: string
 ): Promise<string> {
   // Validate URL format
-  try {
-    new URL(url);
-  } catch {
-    throw new Error('Invalid URL format');
+  const urlError = validateExternalUrl(url);
+  if (urlError) {
+    throw new Error(urlError);
   }
 
   const { data, error } = await supabase

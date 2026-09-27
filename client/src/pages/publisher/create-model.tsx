@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, ArrowRight, Check, Upload, FileText, Code, Users, X, Plus, Info, Trash2, Loader2, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
-import { uploadFileWithProgress, saveExternalUrl, validateFile, formatFileSize } from "@/lib/file-upload";
+import { uploadFileWithProgress, saveExternalUrl, validateFile, validateExternalUrl, formatFileSize, getModelStoragePaths, removeStoredFiles } from "@/lib/file-upload";
 import { createModel, insertCollaborators } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { Progress } from "@/components/ui/progress";
@@ -404,8 +404,21 @@ export default function CreateModelPage() {
       return;
     }
 
+    // Check every external link before anything is saved
+    const invalidUrlFile = files.find(f => f.type === 'url' && validateExternalUrl(f.url || ''));
+    if (invalidUrlFile) {
+      toast({
+        title: "Invalid URL",
+        description: `${invalidUrlFile.name}: ${validateExternalUrl(invalidUrlFile.url || '')}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
     setShowErrorSummary(false);
+
+    let createdModelId: string | null = null;
 
     try {
       // Step 1: Create the model
@@ -426,6 +439,7 @@ export default function CreateModelPage() {
       };
 
       const createdModel = await createModel(modelData);
+      createdModelId = createdModel.id;
 
       // Step 2: Save categories to junction table
       if (selectedCategories.length > 0) {
@@ -507,13 +521,39 @@ export default function CreateModelPage() {
       setLocation("/publisher/my-models");
     } catch (error: any) {
       console.error('Error creating model:', error);
+      // Don't leave a half-created model behind, so fixing the problem and
+      // submitting again doesn't produce a duplicate
+      const discarded = createdModelId ? await discardModel(createdModelId) : true;
+      setFiles(prev => prev.map(f => ({ ...f, uploading: false, uploadProgress: undefined })));
       toast({
         title: "Error Creating Model",
-        description: error.message || "An unexpected error occurred.",
+        description: discarded
+          ? error.message || "An unexpected error occurred."
+          : `${error.message || "An unexpected error occurred."} The model was partly saved; delete it from My Models before trying again.`,
         variant: "destructive",
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Remove a model whose creation failed part-way, with any files already uploaded
+  const discardModel = async (modelId: string): Promise<boolean> => {
+    try {
+      // Removing the model matters more than tidying its stored files
+      const paths = await getModelStoragePaths(modelId).catch(() => [] as string[]);
+      const { data: deletedRows, error } = await supabase
+        .from('models')
+        .delete()
+        .eq('id', modelId)
+        .select('id');
+      if (error) throw error;
+      if (!deletedRows || deletedRows.length === 0) throw new Error('Model was not deleted');
+      await removeStoredFiles(paths);
+      return true;
+    } catch (cleanupError) {
+      console.error('Could not remove the partly created model:', cleanupError);
+      return false;
     }
   };
 
@@ -564,13 +604,25 @@ export default function CreateModelPage() {
         });
         return;
       }
-    } else if (fileType === 'url' && !fileUrl.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "External URL is required.",
-        variant: "destructive",
-      });
-      return;
+    } else if (fileType === 'url') {
+      if (!fileUrl.trim()) {
+        toast({
+          title: "Validation Error",
+          description: "External URL is required.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const urlError = validateExternalUrl(fileUrl);
+      if (urlError) {
+        toast({
+          title: "Invalid URL",
+          description: urlError,
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     const newFile: FileEntry = {
@@ -578,7 +630,7 @@ export default function CreateModelPage() {
       name: fileName,
       type: fileType,
       description: fileDescription,
-      url: fileType === 'url' ? fileUrl : undefined,
+      url: fileType === 'url' ? fileUrl.trim() : undefined,
       file: fileType === 'upload' ? selectedFile! : undefined,
       size: fileType === 'upload' ? selectedFile!.size : undefined,
     };

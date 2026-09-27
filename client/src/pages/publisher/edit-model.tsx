@@ -70,6 +70,7 @@ import {
   uploadFileWithProgress,
   saveExternalUrl,
   validateFile,
+  validateExternalUrl,
   formatFileSize,
   fetchModelFiles,
   deleteFile,
@@ -560,6 +561,19 @@ export default function EditModelPage() {
       return;
     }
 
+    // Check new external links before any change is saved
+    const invalidUrlFile = files.find(
+      (f) => !f.fileId && f.type === "url" && validateExternalUrl(f.url || ""),
+    );
+    if (invalidUrlFile) {
+      toast({
+        title: "Invalid URL",
+        description: `${invalidUrlFile.name}: ${validateExternalUrl(invalidUrlFile.url || "")}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -939,13 +953,25 @@ export default function EditModelPage() {
         });
         return;
       }
-    } else if (fileType === "url" && !fileUrl.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "External URL is required.",
-        variant: "destructive",
-      });
-      return;
+    } else if (fileType === "url") {
+      if (!fileUrl.trim()) {
+        toast({
+          title: "Validation Error",
+          description: "External URL is required.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const urlError = validateExternalUrl(fileUrl);
+      if (urlError) {
+        toast({
+          title: "Invalid URL",
+          description: urlError,
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     const newFile: FileEntry = {
@@ -953,7 +979,7 @@ export default function EditModelPage() {
       name: fileName,
       type: fileType,
       description: fileDescription,
-      url: fileType === "url" ? fileUrl : undefined,
+      url: fileType === "url" ? fileUrl.trim() : undefined,
       file: fileType === "upload" ? selectedFile! : undefined,
       size: fileType === "upload" ? selectedFile!.size : undefined,
     };
