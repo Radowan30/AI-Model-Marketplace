@@ -495,7 +495,8 @@ export default function CreateModelPage() {
               setFiles(prev => prev.map((f, idx) =>
                 idx === i ? { ...f, uploadProgress: progress, uploading: true } : f
               ));
-            }
+            },
+            fileEntry.name
           );
 
           // Mark as complete

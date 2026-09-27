@@ -65,7 +65,8 @@ export async function uploadFileWithProgress(
   userId: string,
   modelId: string,
   description: string | undefined,
-  onProgress: (progress: number) => void
+  onProgress: (progress: number) => void,
+  displayName?: string
 ): Promise<{ url: string; fileId: string }> {
   // Validate file first
   const validation = validateFile(file);
@@ -105,7 +106,7 @@ export async function uploadFileWithProgress(
       .from('model_files')
       .insert({
         model_id: modelId,
-        file_name: file.name,
+        file_name: displayName?.trim() || file.name,
         file_type: 'upload',
         file_url: publicUrl,
         file_path: filePath,
@@ -323,6 +324,20 @@ export async function getFileDownloadUrl(filePath: string): Promise<string> {
 }
 
 /**
+ * Name for a downloaded file: the display name, keeping the stored file's
+ * extension when the display name doesn't already end with it
+ */
+export function downloadFileName(fileName: string, filePath: string): string {
+  const storedName = filePath.split('/').pop() || '';
+  const dot = storedName.lastIndexOf('.');
+  const extension = dot > 0 ? storedName.slice(dot) : '';
+  if (!extension || fileName.toLowerCase().endsWith(extension.toLowerCase())) {
+    return fileName;
+  }
+  return fileName + extension;
+}
+
+/**
  * Download file with access control
  */
 export async function downloadFile(
@@ -366,7 +381,7 @@ export async function downloadFile(
     // Create download link and trigger download
     const link = document.createElement('a');
     link.href = blobUrl;
-    link.download = fileName;
+    link.download = downloadFileName(fileName, filePath);
     document.body.appendChild(link);
     link.click();
 

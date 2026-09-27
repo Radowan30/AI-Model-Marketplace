@@ -760,6 +760,7 @@ export default function EditModelPage() {
                 ),
               );
             },
+            fileEntry.name,
           );
 
           setFiles((prev) =>
