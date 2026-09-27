@@ -387,6 +387,8 @@ export default function MarketplacePage() {
                   onClick={() => {
                     setSearchTerm("");
                     setCategoryFilter([]);
+                    setModelTypeFilter("all");
+                    setSubscriptionTypeFilter("all");
                   }}
                   className="mt-2"
                 >
