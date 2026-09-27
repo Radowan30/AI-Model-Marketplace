@@ -470,7 +470,7 @@ export async function triggerModelUpdateNotifications(params: {
     // Only fetch active subscriptions (buyers who are currently paying/using the model)
     const { data: subscriptions, error: subsError } = await supabase
       .from('subscriptions')
-      .select('user_id')
+      .select('buyer_id')
       .eq('model_id', params.modelId)
       .eq('status', 'active');
 
@@ -490,7 +490,7 @@ export async function triggerModelUpdateNotifications(params: {
         const message = generateUpdateMessage(change.field, change.oldValue, change.newValue);
 
         const notifId = await createNotificationInDB({
-          userId: subscription.user_id,
+          userId: subscription.buyer_id,
           type: "model_updated",
           title: `${params.modelName} Updated`,
           message: message,

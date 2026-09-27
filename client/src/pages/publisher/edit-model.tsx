@@ -582,59 +582,60 @@ export default function EditModelPage() {
           newValue: version,
         });
       }
-      if (features !== model.features) {
+      // `model` comes from fetchModelById, so compare against its camelCase fields
+      if (JSON.stringify(features) !== JSON.stringify(model.features || [])) {
         changes.push({
           field: "features",
           oldValue: model.features,
           newValue: features,
         });
       }
-      if (parseFloat(responseTime) !== model.response_time) {
+      if (parseFloat(responseTime) !== Number(model.stats.responseTime)) {
         changes.push({
           field: "response_time",
-          oldValue: model.response_time,
+          oldValue: model.stats.responseTime,
           newValue: parseFloat(responseTime),
         });
       }
-      if (parseFloat(accuracy) !== model.accuracy) {
+      if (parseFloat(accuracy) !== Number(model.stats.accuracy)) {
         changes.push({
           field: "accuracy",
-          oldValue: model.accuracy,
+          oldValue: model.stats.accuracy,
           newValue: parseFloat(accuracy),
         });
       }
-      if ((apiSpec || null) !== model.api_documentation) {
+      if ((apiSpec || null) !== (model.apiDocumentation || null)) {
         changes.push({
           field: "api_documentation",
-          oldValue: model.api_documentation,
+          oldValue: model.apiDocumentation,
           newValue: apiSpec || null,
         });
       }
-      if (priceType !== model.subscription_type) {
+      if (priceType !== model.price) {
         changes.push({
           field: "subscription_type",
-          oldValue: model.subscription_type,
+          oldValue: model.price,
           newValue: priceType,
         });
       }
-      if (priceType === "paid" && parseFloat(price) !== model.price_amount) {
+      if (priceType === "paid" && parseFloat(price) !== Number(model.priceAmount)) {
         changes.push({
           field: "subscription_price",
-          oldValue: model.price_amount,
+          oldValue: model.priceAmount,
           newValue: parseFloat(price),
         });
       }
-      if (detailedDescription !== model.detailed_description) {
+      if (detailedDescription !== (model.detailedDescription || "")) {
         changes.push({
           field: "detailed_description",
-          oldValue: model.detailed_description,
+          oldValue: model.detailedDescription,
           newValue: detailedDescription,
         });
       }
-      if (shortDescription !== model.short_description) {
+      if (shortDescription !== (model.shortDescription || "")) {
         changes.push({
           field: "short_description",
-          oldValue: model.short_description,
+          oldValue: model.shortDescription,
           newValue: shortDescription,
         });
       }
