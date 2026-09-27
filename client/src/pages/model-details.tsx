@@ -1480,11 +1480,13 @@ export default function ModelDetailsPage() {
                     First Published On:
                   </span>
                   <span className="break-words">
-                    {new Date(model.publishedDate).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
+                    {model.publishedDate
+                      ? new Date(model.publishedDate).toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                        })
+                      : "Not recorded"}
                   </span>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
