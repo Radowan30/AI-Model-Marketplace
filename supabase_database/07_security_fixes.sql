@@ -591,3 +591,110 @@ REVOKE SELECT ON public.user_roles FROM anon;
 
 -- Unused SECURITY DEFINER view that exposed every user's email and roles
 DROP VIEW IF EXISTS public.user_roles_view;
+
+-- =====================================================
+-- SECTION 10: ACCOUNT CREATION
+-- =====================================================
+
+-- Create the profile (and the requested portal role) when an auth account is created,
+-- atomically with sign-up. Never blocks a sign-up.
+CREATE OR REPLACE FUNCTION public.handle_new_auth_user()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path = public
+AS $function$
+DECLARE
+  v_role text := NEW.raw_user_meta_data ->> 'role';
+  v_name text := COALESCE(
+    NULLIF(btrim(NEW.raw_user_meta_data ->> 'name'), ''),
+    NULLIF(btrim(NEW.raw_user_meta_data ->> 'full_name'), ''),
+    NULLIF(split_part(COALESCE(NEW.email, ''), '@', 1), ''),
+    'User'
+  );
+BEGIN
+  IF NEW.email IS NOT NULL THEN
+    INSERT INTO public.users (id, name, email)
+    VALUES (NEW.id, v_name, lower(NEW.email))
+    ON CONFLICT DO NOTHING;
+
+    IF v_role IN ('buyer', 'publisher') THEN
+      INSERT INTO public.user_roles (user_id, role_id)
+      SELECT NEW.id, r.id FROM public.roles r WHERE r.role_name = v_role
+      ON CONFLICT DO NOTHING;
+    END IF;
+  END IF;
+  RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'handle_new_auth_user(%): %', NEW.id, SQLERRM;
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.handle_new_auth_user() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+AFTER INSERT ON auth.users
+FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
+
+-- Signed-in callers may only act on their own account. A signed-out call is only
+-- accepted to finish a brand-new, unconfirmed sign-up (email confirmation returns no
+-- session), and never changes an existing account. The email always comes from auth.
+CREATE OR REPLACE FUNCTION public.create_user_with_role(p_user_id uuid, p_name text, p_email text, p_role_name text)
+ RETURNS json
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path = public
+AS $function$
+DECLARE
+  v_caller uuid := auth.uid();
+  v_role_id uuid;
+  v_user_role_id uuid;
+  v_auth_email text;
+  v_created_at timestamptz;
+  v_confirmed_at timestamptz;
+BEGIN
+  SELECT lower(u.email), u.created_at, u.email_confirmed_at
+    INTO v_auth_email, v_created_at, v_confirmed_at
+  FROM auth.users u WHERE u.id = p_user_id;
+
+  IF v_created_at IS NULL THEN
+    RETURN json_build_object('success', false, 'error', 'User not found');
+  END IF;
+
+  SELECT id INTO v_role_id FROM roles WHERE role_name = p_role_name;
+  IF v_role_id IS NULL THEN
+    RETURN json_build_object('success', false, 'error', format('Role %s not found', p_role_name));
+  END IF;
+
+  IF v_caller IS NULL THEN
+    IF v_confirmed_at IS NOT NULL
+       OR v_created_at < now() - interval '15 minutes'
+       OR EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = p_user_id AND ur.role_id <> v_role_id) THEN
+      RETURN json_build_object('success', false, 'error', 'Not allowed');
+    END IF;
+  ELSIF v_caller <> p_user_id THEN
+    RETURN json_build_object('success', false, 'error', 'Not allowed');
+  END IF;
+
+  INSERT INTO users (id, name, email)
+  VALUES (p_user_id, COALESCE(NULLIF(btrim(p_name), ''), split_part(v_auth_email, '@', 1)), v_auth_email)
+  ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email, updated_at = now();
+
+  INSERT INTO user_roles (user_id, role_id)
+  VALUES (p_user_id, v_role_id)
+  ON CONFLICT (user_id, role_id) DO NOTHING
+  RETURNING id INTO v_user_role_id;
+
+  RETURN json_build_object(
+    'success', true,
+    'user_id', p_user_id,
+    'role_id', v_role_id,
+    'user_role_id', v_user_role_id,
+    'message', 'User and role created successfully'
+  );
+EXCEPTION WHEN OTHERS THEN
+  RETURN json_build_object('success', false, 'error', SQLERRM, 'sqlstate', SQLSTATE);
+END;
+$function$;

@@ -266,8 +266,10 @@ export default function AuthPage() {
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/email-verified`,
+          // The database creates the profile and this portal role when the account is created
           data: {
             name: name,
+            role: selectedRole,
           },
         },
       });
