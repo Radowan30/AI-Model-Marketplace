@@ -1,4 +1,4 @@
-import type { Express, Request } from "express";
+import type { Express, NextFunction, Request, Response } from "express";
 import { type Server } from "http";
 import type { User } from "@supabase/supabase-js";
 import { supabaseAdmin } from "./supabase-admin";
@@ -34,10 +34,48 @@ async function getRequestUser(req: Request): Promise<User | null> {
   return data.user;
 }
 
+// Simple fixed-window rate limit per client IP for the auth endpoints
+const AUTH_RATE_LIMIT = 20;
+const AUTH_RATE_WINDOW_MS = 10 * 60 * 1000;
+const authRequestCounts = new Map<string, { count: number; windowStart: number }>();
+
+function authRateLimit(req: Request, res: Response, next: NextFunction) {
+  const now = Date.now();
+  const key = req.ip || "unknown";
+  const entry = authRequestCounts.get(key);
+
+  if (!entry || now - entry.windowStart >= AUTH_RATE_WINDOW_MS) {
+    authRequestCounts.set(key, { count: 1, windowStart: now });
+    return next();
+  }
+
+  entry.count++;
+  if (entry.count > AUTH_RATE_LIMIT) {
+    res.setHeader("Retry-After", Math.ceil((entry.windowStart + AUTH_RATE_WINDOW_MS - now) / 1000));
+    return res.status(429).json({ error: "Too many requests. Please try again later." });
+  }
+  next();
+}
+
+// Forget expired windows so the map doesn't grow without bound
+setInterval(() => {
+  const now = Date.now();
+  authRequestCounts.forEach((entry, key) => {
+    if (now - entry.windowStart >= AUTH_RATE_WINDOW_MS) authRequestCounts.delete(key);
+  });
+}, AUTH_RATE_WINDOW_MS).unref();
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Used by the Docker / docker-compose health checks
+  app.get("/api/health", (_req, res) => {
+    res.json({ status: "ok" });
+  });
+
+  app.use("/api/auth", authRateLimit);
+
   // Tells the sign-up form whether an email belongs to a Google-only account.
   // Read-only: it never changes an account, and unknown emails get the same
   // answer as accounts that already have a password.
