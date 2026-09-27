@@ -32,7 +32,7 @@ import {
   Trash2,
   ArrowLeftRight,
 } from "lucide-react";
-import { useRoute } from "wouter";
+import { Link, useRoute } from "wouter";
 import { useState, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -1323,9 +1323,9 @@ export default function ModelDetailsPage() {
                   </Button>
                   <p className="text-xs text-center text-muted-foreground">
                     By subscribing, you agree to the{" "}
-                    <a href="#" className="underline">
-                      Terms of Use
-                    </a>
+                    <Link href="/terms-of-service" asChild>
+                      <a className="underline">Terms of Use</a>
+                    </Link>
                     .
                   </p>
                 </>
