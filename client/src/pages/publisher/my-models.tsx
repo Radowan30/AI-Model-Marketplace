@@ -405,12 +405,16 @@ export default function MyModelsPage() {
       const model = myModels.find((m) => m.id === modelId);
 
       // Update the model status in the database
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from("models")
         .update({ status: "draft", updated_at: new Date().toISOString() })
-        .eq("id", modelId);
+        .eq("id", modelId)
+        .select("id");
 
       if (error) throw error;
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error("You don't have permission to change this model.");
+      }
 
       // Update local state to reflect the change immediately in the UI
       // We use map() to find and update just the one model that changed
@@ -438,15 +442,19 @@ export default function MyModelsPage() {
       const model = myModels.find((m) => m.id === modelId);
 
       // Update the model status in the database
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from("models")
         .update({
           status: "published",
           updated_at: new Date().toISOString(),
         })
-        .eq("id", modelId);
+        .eq("id", modelId)
+        .select("id");
 
       if (error) throw error;
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error("You don't have permission to change this model.");
+      }
 
       // Update local state to show the change immediately
       setMyModels((prev) =>
@@ -768,13 +776,18 @@ export default function MyModelsPage() {
                                   <FileX className="mr-2 h-4 w-4" /> Unpublish
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                className="text-destructive"
-                                onClick={() => handleDeleteClick(model.id)}
-                              >
-                                <Trash className="mr-2 h-4 w-4" /> Delete
-                              </DropdownMenuItem>
+                              {/* Only the owner can delete a model */}
+                              {isOwnModel && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    className="text-destructive"
+                                    onClick={() => handleDeleteClick(model.id)}
+                                  >
+                                    <Trash className="mr-2 h-4 w-4" /> Delete
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

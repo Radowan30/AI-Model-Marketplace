@@ -816,16 +816,20 @@ export default function EditModelPage() {
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from("models")
         .update({
           status: "published",
           updated_at: new Date().toISOString(),
           published_on: new Date().toISOString(),
         })
-        .eq("id", modelId);
+        .eq("id", modelId)
+        .select("id");
 
       if (error) throw error;
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error("You don't have permission to change this model.");
+      }
 
       setModel({ ...model, status: "published" });
 
@@ -851,15 +855,19 @@ export default function EditModelPage() {
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from("models")
         .update({
           status: "draft",
           updated_at: new Date().toISOString(),
         })
-        .eq("id", modelId);
+        .eq("id", modelId)
+        .select("id");
 
       if (error) throw error;
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error("You don't have permission to change this model.");
+      }
 
       setModel({ ...model, status: "draft" });
 
