@@ -418,3 +418,17 @@ EXECUTE FUNCTION public.update_updated_at_column();
 UPDATE public.models m SET
   average_rating = COALESCE((SELECT round(avg(r.rating_value)::numeric, 2) FROM public.ratings r WHERE r.model_id = m.id), 0),
   total_rating_count = (SELECT count(*) FROM public.ratings r WHERE r.model_id = m.id);
+
+-- =====================================================
+-- SECTION 7: CATEGORIES
+-- =====================================================
+
+DROP POLICY IF EXISTS "Authenticated users can create categories" ON public.categories;
+CREATE POLICY "Authenticated users can create categories"
+ON public.categories FOR INSERT
+TO authenticated
+WITH CHECK (
+  created_by = auth.uid()
+  AND is_custom = true
+  AND char_length(btrim(name)) BETWEEN 1 AND 100
+);
