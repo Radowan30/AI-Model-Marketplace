@@ -894,17 +894,7 @@ export default function ModelDetailsPage() {
       const sumRatings =
         allRatings?.reduce((sum, r) => sum + r.rating_value, 0) || 0;
       const newAverageRating = totalRatings > 0 ? sumRatings / totalRatings : 0;
-
-      // Update model with new average rating
-      const { error: updateError } = await supabase
-        .from("models")
-        .update({
-          average_rating: newAverageRating,
-          total_rating_count: totalRatings,
-        })
-        .eq("id", modelId);
-
-      if (updateError) throw updateError;
+      // The database keeps the model's stored average in step with the ratings table
 
       // Create notification for publisher(s)
       await triggerNewRatingNotification({

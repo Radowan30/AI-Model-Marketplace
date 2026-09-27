@@ -347,3 +347,74 @@ AS $function$
     AND (m.status = 'published' OR m.publisher_id = auth.uid() OR public.is_collaborator_by_email(m.id))
   GROUP BY s.model_id
 $function$;
+
+-- =====================================================
+-- SECTION 6: RATINGS
+-- =====================================================
+
+-- The model team cannot rate its own model
+DROP POLICY IF EXISTS "Users can rate models" ON public.ratings;
+CREATE POLICY "Users can rate models"
+ON public.ratings FOR INSERT
+TO authenticated
+WITH CHECK (
+  auth.uid() = user_id
+  AND NOT public.is_model_owner(model_id)
+  AND NOT public.is_collaborator_by_email(model_id)
+);
+
+DROP POLICY IF EXISTS "Users can update own ratings" ON public.ratings;
+CREATE POLICY "Users can update own ratings"
+ON public.ratings FOR UPDATE
+USING (auth.uid() = user_id)
+WITH CHECK (
+  auth.uid() = user_id
+  AND NOT public.is_model_owner(model_id)
+  AND NOT public.is_collaborator_by_email(model_id)
+);
+
+-- Keep the stored average and count in step with the ratings table
+CREATE OR REPLACE FUNCTION public.refresh_model_rating()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path = public
+AS $function$
+DECLARE
+  v_model uuid;
+  v_models uuid[];
+BEGIN
+  v_models := CASE TG_OP
+    WHEN 'INSERT' THEN ARRAY[NEW.model_id]
+    WHEN 'DELETE' THEN ARRAY[OLD.model_id]
+    ELSE ARRAY[OLD.model_id, NEW.model_id]
+  END;
+  FOREACH v_model IN ARRAY v_models LOOP
+    IF v_model IS NOT NULL THEN
+      UPDATE public.models SET
+        average_rating = COALESCE((SELECT round(avg(r.rating_value)::numeric, 2) FROM public.ratings r WHERE r.model_id = v_model), 0),
+        total_rating_count = (SELECT count(*) FROM public.ratings r WHERE r.model_id = v_model)
+      WHERE id = v_model;
+    END IF;
+  END LOOP;
+  RETURN NULL;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.refresh_model_rating() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS refresh_model_rating ON public.ratings;
+CREATE TRIGGER refresh_model_rating
+AFTER INSERT OR UPDATE OR DELETE ON public.ratings
+FOR EACH ROW EXECUTE FUNCTION public.refresh_model_rating();
+
+-- Rating refreshes run inside a trigger; don't let them change a model's "Last Update"
+DROP TRIGGER IF EXISTS update_models_updated_at ON public.models;
+CREATE TRIGGER update_models_updated_at
+BEFORE UPDATE ON public.models
+FOR EACH ROW WHEN (pg_trigger_depth() < 1)
+EXECUTE FUNCTION public.update_updated_at_column();
+
+UPDATE public.models m SET
+  average_rating = COALESCE((SELECT round(avg(r.rating_value)::numeric, 2) FROM public.ratings r WHERE r.model_id = m.id), 0),
+  total_rating_count = (SELECT count(*) FROM public.ratings r WHERE r.model_id = m.id);
