@@ -8,7 +8,9 @@
     "dev": "cross-env NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
     "start": "cross-env NODE_ENV=production node dist/index.cjs",
-    "check": "tsc"
+    "check": "tsc",
+    "test:security": "node --test --test-concurrency=1 tests/security.test.mjs",
+    "test:cleanup": "node tests/cleanup-test-users.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
