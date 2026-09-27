@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
+import { MIN_PASSWORD_LENGTH } from "@/lib/utils";
 import { Eye, EyeOff } from "lucide-react";
 
 export default function ResetPasswordPage() {
@@ -90,10 +91,10 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    if (newPassword.length < 6) {
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
       toast({
         title: "Password too short",
-        description: "Password must be at least 6 characters long.",
+        description: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
         variant: "destructive",
       });
       return;
@@ -106,6 +107,38 @@ export default function ResetPasswordPage() {
       });
 
       if (error) throw error;
+
+      // A Google-only account that reached this page through the verification
+      // link from sign-up now has a password; link the email sign-in method so
+      // it behaves like any email/password account, and add the portal role
+      // they were registering for.
+      const { data: { user: updatedUser } } = await supabase.auth.getUser();
+      const identities = updatedUser?.identities || [];
+      const isGoogleOnly =
+        identities.some((identity) => identity.provider === 'google') &&
+        !identities.some((identity) => identity.provider === 'email');
+      const pendingRole = localStorage.getItem('pendingPasswordRole');
+      localStorage.removeItem('pendingPasswordRole');
+
+      if (isGoogleOnly) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const response = await fetch('/api/auth/link-email-identity', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session?.access_token ?? ''}`,
+            },
+            body: JSON.stringify({ role: pendingRole }),
+          });
+          if (!response.ok) {
+            console.error('Error linking email sign-in:', response.status);
+          }
+        } catch (linkError) {
+          // The password is already set, so email sign-in still works
+          console.error('Error linking email sign-in:', linkError);
+        }
+      }
 
       toast({
         title: "Password updated!",
@@ -171,7 +204,7 @@ export default function ResetPasswordPage() {
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={MIN_PASSWORD_LENGTH}
                     className="pr-10"
                   />
                   <button
@@ -197,7 +230,7 @@ export default function ResetPasswordPage() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     required
-                    minLength={6}
+                    minLength={MIN_PASSWORD_LENGTH}
                     className="pr-10"
                   />
                   <button

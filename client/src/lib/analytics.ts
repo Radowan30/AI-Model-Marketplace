@@ -2,6 +2,26 @@
  * Analytics utility functions
  */
 import { supabase } from './supabase';
+import { fetchModelStatistics } from './api';
+
+/**
+ * View timestamps (without viewer identity) for models the caller owns or co-manages
+ */
+async function fetchViewTimestamps(modelIds: string[], since: Date): Promise<{ timestamp: string }[]> {
+  if (modelIds.length === 0) return [];
+
+  const { data, error } = await supabase.rpc('get_model_view_timestamps', {
+    p_model_ids: modelIds,
+    p_since: since.toISOString(),
+  });
+
+  if (error) {
+    console.error('Error fetching view timestamps:', error);
+    return [];
+  }
+
+  return (data || []).map((row: any) => ({ timestamp: row.viewed_at }));
+}
 
 /**
  * Get start of week from date
@@ -230,21 +250,8 @@ export async function fetchPublisherAnalytics(publisherId: string) {
     const models = uniqueModels;
     const modelIds = models.map(m => m.id);
 
-    // Fetch all views for publisher's models grouped by model
-    const { data: allViews, error: allViewsError } = await supabase
-      .from('views')
-      .select('model_id')
-      .in('model_id', modelIds);
-
-    if (allViewsError) {
-      console.error('Error fetching all views:', allViewsError);
-    }
-
-    // Count views per model
-    const viewsByModel: { [key: string]: number } = {};
-    (allViews || []).forEach((view: any) => {
-      viewsByModel[view.model_id] = (viewsByModel[view.model_id] || 0) + 1;
-    });
+    // All-time views per model (totals come from a database function; individual views are private)
+    const { viewsByModel } = await fetchModelStatistics(modelIds);
 
     // Fetch all subscriptions for publisher's models (active only)
     const { count: totalSubscribers, error: subsError } = await supabase
@@ -285,21 +292,13 @@ export async function fetchPublisherAnalytics(publisherId: string) {
     });
 
     // Calculate totals from actual source tables
-    const totalViews = allViews?.length || 0;
+    const totalViews = Object.values(viewsByModel).reduce((sum, count) => sum + count, 0);
 
     // Fetch recent views (last 8 weeks)
     const eightWeeksAgo = new Date();
     eightWeeksAgo.setDate(eightWeeksAgo.getDate() - (8 * 7));
 
-    const { data: recentViews, error: viewsError } = await supabase
-      .from('views')
-      .select('*')
-      .in('model_id', modelIds)
-      .gte('timestamp', eightWeeksAgo.toISOString());
-
-    if (viewsError) {
-      console.error('Error fetching recent views:', viewsError);
-    }
+    const recentViews = await fetchViewTimestamps(modelIds, eightWeeksAgo);
 
     // Get category distribution
     const categoryDist = await getCategoryDistribution(publisherId);
@@ -358,18 +357,9 @@ export async function fetchModelWeeklyViews(modelId: string): Promise<{ week: st
     const startDate = modelCreatedAt > eightWeeksAgo ? modelCreatedAt : eightWeeksAgo;
 
     // Fetch views for this model since start date
-    const { data: views, error: viewsError } = await supabase
-      .from('views')
-      .select('*')
-      .eq('model_id', modelId)
-      .gte('timestamp', startDate.toISOString());
+    const views = await fetchViewTimestamps([modelId], startDate);
 
-    if (viewsError) {
-      console.error('Error fetching model views:', viewsError);
-      return [];
-    }
-
-    return aggregateWeeklyViews(views || [], 8);
+    return aggregateWeeklyViews(views, 8);
   } catch (error) {
     console.error('Error fetching model weekly views:', error);
     return [];

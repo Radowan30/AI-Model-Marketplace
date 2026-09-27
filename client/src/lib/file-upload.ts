@@ -31,6 +31,20 @@ export function validateFile(file: File): { valid: boolean; error?: string } {
 }
 
 /**
+ * Check an external file link. Returns an error message, or null if the link
+ * is a valid https:// URL.
+ */
+export function validateExternalUrl(url: string): string | null {
+  const message = 'Enter a valid link that starts with https:// (for example https://example.com/model.onnx).';
+  try {
+    const parsed = new URL(url.trim());
+    return parsed.protocol === 'https:' && parsed.hostname ? null : message;
+  } catch {
+    return message;
+  }
+}
+
+/**
  * Format file size for display
  */
 export function formatFileSize(bytes: number): string {
@@ -127,10 +141,9 @@ export async function saveExternalUrl(
   description?: string
 ): Promise<string> {
   // Validate URL format
-  try {
-    new URL(url);
-  } catch {
-    throw new Error('Invalid URL format');
+  const urlError = validateExternalUrl(url);
+  if (urlError) {
+    throw new Error(urlError);
   }
 
   const { data, error } = await supabase
@@ -158,26 +171,63 @@ export async function saveExternalUrl(
  * Delete file from storage and database
  */
 export async function deleteFile(fileId: string, filePath?: string): Promise<void> {
-  // Delete from database
-  const { error: dbError } = await supabase
-    .from('model_files')
-    .delete()
-    .eq('id', fileId);
-
-  if (dbError) {
-    throw new Error(`Failed to delete file record: ${dbError.message}`);
-  }
-
-  // Delete from storage if it's an uploaded file
+  // Delete from storage first: permission to delete a file another team member
+  // uploaded is granted through its model_files record, which must still exist
   if (filePath) {
     const { error: storageError } = await supabase.storage
       .from(STORAGE_BUCKET)
       .remove([filePath]);
 
     if (storageError) {
-      console.error('Failed to delete file from storage:', storageError);
-      // Don't throw - file record is already deleted
+      throw new Error(`Failed to delete file from storage: ${storageError.message}`);
     }
+  }
+
+  // Delete from database
+  const { data: deletedRows, error: dbError } = await supabase
+    .from('model_files')
+    .delete()
+    .eq('id', fileId)
+    .select('id');
+
+  if (dbError) {
+    throw new Error(`Failed to delete file record: ${dbError.message}`);
+  }
+
+  if (!deletedRows || deletedRows.length === 0) {
+    throw new Error('You do not have permission to delete this file.');
+  }
+}
+
+/**
+ * Storage paths of a model's uploaded files. Collect them before deleting the
+ * model, because its file records are removed with it.
+ */
+export async function getModelStoragePaths(modelId: string): Promise<string[]> {
+  const { data: files, error } = await supabase
+    .from('model_files')
+    .select('file_path')
+    .eq('model_id', modelId)
+    .not('file_path', 'is', null);
+
+  if (error) {
+    throw new Error(`Failed to list model files: ${error.message}`);
+  }
+
+  return (files || []).map((f: any) => f.file_path).filter(Boolean);
+}
+
+/**
+ * Remove stored files after their model was deleted. Failures are logged but
+ * not thrown, because the model itself is already gone.
+ */
+export async function removeStoredFiles(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(paths);
+
+  if (error) {
+    console.error('Failed to delete model files from storage:', error);
   }
 }
 
@@ -259,10 +309,11 @@ export async function checkFileAccess(
  * Generate signed URL for file download
  */
 export async function getFileDownloadUrl(filePath: string): Promise<string> {
-  // Generate signed URL (expires in 1 hour)
+  // Generate a short-lived signed URL: the app downloads it immediately, and a
+  // leaked URL stays usable (and CDN-cached) for as long as it is valid
   const { data, error } = await supabase.storage
     .from(STORAGE_BUCKET)
-    .createSignedUrl(filePath, 3600);
+    .createSignedUrl(filePath, 60);
 
   if (error) {
     throw new Error(`Failed to generate download URL: ${error.message}`);

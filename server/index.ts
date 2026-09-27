@@ -12,6 +12,9 @@ import { createServer } from "http";
 const app = express();
 const httpServer = createServer(app);
 
+// Render and Docker put one proxy in front of the app; use the client's IP from it
+app.set("trust proxy", 1);
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -91,10 +94,15 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = parseInt(process.env.PORT || "5000", 10);
+  // Production (Render, Docker) must listen on all interfaces; local development
+  // stays on this machine unless HOST is set explicitly
+  const host =
+    process.env.HOST ||
+    (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
   httpServer.listen(
     {
       port,
-      host: "0.0.0.0",
+      host,
       reusePort: true,
     },
     () => {

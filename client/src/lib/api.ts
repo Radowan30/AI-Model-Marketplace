@@ -5,6 +5,43 @@ import { supabase } from './supabase';
 import { transformDatabaseModels, transformDatabaseModel } from './data-transforms';
 
 /**
+ * All-time view and download totals per model. Totals come from database
+ * functions because individual views and downloads are private to each user.
+ */
+export async function fetchModelStatistics(modelIds: string[]) {
+  const viewsByModel: { [key: string]: number } = {};
+  const views30DaysByModel: { [key: string]: number } = {};
+  const downloadsByModel: { [key: string]: number } = {};
+
+  if (modelIds.length === 0) {
+    return { viewsByModel, views30DaysByModel, downloadsByModel };
+  }
+
+  const [viewStats, downloadCounts] = await Promise.all([
+    supabase.rpc('get_model_view_stats', { p_model_ids: modelIds }),
+    supabase.rpc('get_model_download_counts', { p_model_ids: modelIds }),
+  ]);
+
+  if (viewStats.error) {
+    console.error('Error fetching view statistics:', viewStats.error);
+  }
+  if (downloadCounts.error) {
+    console.error('Error fetching download counts:', downloadCounts.error);
+  }
+
+  (viewStats.data || []).forEach((row: any) => {
+    viewsByModel[row.model_id] = Number(row.total_views) || 0;
+    views30DaysByModel[row.model_id] = Number(row.views_30_days) || 0;
+  });
+
+  (downloadCounts.data || []).forEach((row: any) => {
+    downloadsByModel[row.model_id] = Number(row.downloads) || 0;
+  });
+
+  return { viewsByModel, views30DaysByModel, downloadsByModel };
+}
+
+/**
  * Fetch all published models with their categories and publisher info
  */
 export async function fetchPublishedModels() {
@@ -36,38 +73,7 @@ export async function fetchPublishedModels() {
   // Get all model IDs
   const modelIds = data.map(m => m.id);
 
-  // Fetch all views for these models (all-time)
-  const { data: allViews, error: viewsError } = await supabase
-    .from('views')
-    .select('model_id')
-    .in('model_id', modelIds);
-
-  if (viewsError) {
-    console.error('Error fetching views:', viewsError);
-  }
-
-  // Fetch all downloads for these models
-  const { data: allDownloads, error: downloadsError } = await supabase
-    .from('user_activities')
-    .select('model_id')
-    .in('model_id', modelIds)
-    .eq('activity_type', 'downloaded');
-
-  if (downloadsError) {
-    console.error('Error fetching downloads:', downloadsError);
-  }
-
-  // Group views and downloads by model_id
-  const viewsByModel: { [key: string]: number } = {};
-  const downloadsByModel: { [key: string]: number } = {};
-
-  (allViews || []).forEach((view: any) => {
-    viewsByModel[view.model_id] = (viewsByModel[view.model_id] || 0) + 1;
-  });
-
-  (allDownloads || []).forEach((download: any) => {
-    downloadsByModel[download.model_id] = (downloadsByModel[download.model_id] || 0) + 1;
-  });
+  const { viewsByModel, downloadsByModel } = await fetchModelStatistics(modelIds);
 
   // Transform the nested categories structure and add publisher info, collaborators, and stats
   const modelsWithCategories = data.map(model => ({
@@ -108,51 +114,18 @@ export async function fetchModelById(modelId: string) {
 
   if (error) throw error;
 
-  // Fetch statistics from source tables
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  // View and download totals (individual views/downloads are private to each user)
+  const { viewsByModel, views30DaysByModel, downloadsByModel } =
+    await fetchModelStatistics([modelId]);
 
-  // Count page views in last 30 days
-  const { count: pageViews, error: viewsError } = await supabase
-    .from('views')
-    .select('*', { count: 'exact', head: true })
-    .eq('model_id', modelId)
-    .gte('timestamp', thirtyDaysAgo.toISOString());
+  // Subscriber totals (each buyer can only read their own subscription row)
+  const { data: subscriberCounts, error: subscriberCountsError } = await supabase
+    .rpc('get_model_subscriber_counts', { p_model_ids: [modelId] });
 
-  if (viewsError) {
-    console.error('Error fetching page views count:', viewsError);
+  if (subscriberCountsError) {
+    console.error('Error fetching subscriber counts:', subscriberCountsError);
   }
-
-  // Count all-time page views
-  const { count: pageViewsTotal, error: viewsTotalError } = await supabase
-    .from('views')
-    .select('*', { count: 'exact', head: true })
-    .eq('model_id', modelId);
-
-  if (viewsTotalError) {
-    console.error('Error fetching total page views count:', viewsTotalError);
-  }
-
-  // Count active subscriptions
-  const { count: activeSubscribers, error: activeSubsError } = await supabase
-    .from('subscriptions')
-    .select('*', { count: 'exact', head: true })
-    .eq('model_id', modelId)
-    .eq('status', 'active');
-
-  if (activeSubsError) {
-    console.error('Error fetching active subscribers count:', activeSubsError);
-  }
-
-  // Count total subscriptions
-  const { count: totalSubscribers, error: totalSubsError } = await supabase
-    .from('subscriptions')
-    .select('*', { count: 'exact', head: true })
-    .eq('model_id', modelId);
-
-  if (totalSubsError) {
-    console.error('Error fetching total subscribers count:', totalSubsError);
-  }
+  const subscriberRow: any = (subscriberCounts || [])[0];
 
   // Count discussions
   const { count: discussionCount, error: discussionsError } = await supabase
@@ -162,17 +135,6 @@ export async function fetchModelById(modelId: string) {
 
   if (discussionsError) {
     console.error('Error fetching discussions count:', discussionsError);
-  }
-
-  // Count downloads from user_activities
-  const { count: downloadCount, error: downloadsError } = await supabase
-    .from('user_activities')
-    .select('*', { count: 'exact', head: true })
-    .eq('model_id', modelId)
-    .eq('activity_type', 'downloaded');
-
-  if (downloadsError) {
-    console.error('Error fetching downloads count:', downloadsError);
   }
 
   // Calculate average rating from ratings table
@@ -197,12 +159,12 @@ export async function fetchModelById(modelId: string) {
     publisher_email: data.users?.email || '',
     collaborators: data.collaborators || [],
     // Override with actual statistics from source tables
-    page_views_30_days: pageViews || 0,
-    total_views: pageViewsTotal || 0,
-    active_subscribers: activeSubscribers || 0,
-    total_subscribers: totalSubscribers || 0,
+    page_views_30_days: views30DaysByModel[modelId] || 0,
+    total_views: viewsByModel[modelId] || 0,
+    active_subscribers: Number(subscriberRow?.active_subscribers) || 0,
+    total_subscribers: Number(subscriberRow?.total_subscribers) || 0,
     discussion_count: discussionCount || 0,
-    downloads: downloadCount || 0,
+    downloads: downloadsByModel[modelId] || 0,
     average_rating: averageRating,
     total_rating_count: totalRatings
   };

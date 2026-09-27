@@ -25,6 +25,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Check, Eye, EyeOff } from "lucide-react";
 import generatedImage from "@assets/generated_images/mimos_ai_marketplace_hero_background.png";
 import { supabase } from "@/lib/supabase";
+import { MIN_PASSWORD_LENGTH } from "@/lib/utils";
 
 export default function AuthPage() {
   // Read query parameters to determine initial mode and tab
@@ -72,6 +73,16 @@ export default function AuthPage() {
       toast({
         title: "Error",
         description: "Passwords do not match.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setLoading(false);
+      toast({
+        title: "Password too short",
+        description: `Password must be at least ${MIN_PASSWORD_LENGTH} characters long.`,
         variant: "destructive",
       });
       return;
@@ -201,82 +212,61 @@ export default function AuthPage() {
 
       // Check if sign-in failed because user exists with Google-only
       if (signInError && !signInData?.user) {
-        // Call server API to check if user exists with Google-only and add password
+        // Ask the server whether this email belongs to a Google-only account.
+        // A password is never set here: the owner must first prove control of
+        // the email address by opening the link we send below.
+        let isGoogleOnly = false;
         try {
-          const response = await fetch("/api/auth/add-password", {
+          const response = await fetch("/api/auth/account-status", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ email, password }),
+            body: JSON.stringify({ email }),
           });
 
-          const result = await response.json();
-
-          if (response.ok && result.success) {
-            console.log("Successfully added password to Google-only account");
-
-            // Now sign in with the new password
-            const { data: newSignInData, error: newSignInError } =
-              await supabase.auth.signInWithPassword({
-                email,
-                password,
-              });
-
-            if (newSignInError || !newSignInData?.user) {
-              throw new Error("Failed to sign in after adding password");
-            }
-
-            // Check if user has the role
-            const { data: existingRole } = await supabase
-              .from("user_roles")
-              .select("id")
-              .eq("user_id", newSignInData.user.id)
-              .eq("role_id", roleCheck.id)
-              .single();
-
-            if (!existingRole) {
-              // Add the role
-              const { data: roleResult, error: rpcError } = await supabase.rpc(
-                "create_user_with_role",
-                {
-                  p_user_id: newSignInData.user.id,
-                  p_name: name, // Use name from registration form, not from Google metadata
-                  p_email: newSignInData.user.email || "",
-                  p_role_name: selectedRole,
-                },
-              );
-
-              if (rpcError || (roleResult && !roleResult.success)) {
-                throw new Error("Failed to add role");
-              }
-            }
-
-            // Sign out and redirect to login
-            localStorage.removeItem("currentRole");
-            localStorage.removeItem("isRegistering");
-            localStorage.removeItem("registrationStartTime");
-            await supabase.auth.signOut();
-
-            setLoading(false);
-            toast({
-              title: "Email/Password added!",
-              description: `You can now sign in with email and password. ${!existingRole ? `${selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1)} access has been added.` : ""}`,
-            });
-
-            setIsRegistering(false);
-            return;
-          } else if (response.status === 404 || response.status === 400) {
-            // User doesn't exist with Google-only, continue to normal sign-up
-            console.log(
-              "User does not exist with Google-only, proceeding with sign-up",
-            );
+          if (response.ok) {
+            const result = await response.json();
+            isGoogleOnly = result.googleOnly === true;
           } else {
-            console.error("Error from add-password API:", result.error);
+            console.error("Error from account-status API:", response.status);
           }
         } catch (apiError: any) {
           console.error("API call error:", apiError);
           // Continue to normal sign-up flow if API fails
+        }
+
+        if (isGoogleOnly) {
+          localStorage.removeItem("currentRole");
+          localStorage.removeItem("isRegistering");
+          localStorage.removeItem("registrationStartTime");
+          // Remember which portal they registered for; the reset page adds it
+          localStorage.setItem("pendingPasswordRole", selectedRole);
+
+          const { error: resetError } =
+            await supabase.auth.resetPasswordForEmail(email, {
+              redirectTo: `${window.location.origin}/reset-password`,
+            });
+
+          setLoading(false);
+
+          if (resetError) {
+            localStorage.removeItem("pendingPasswordRole");
+            toast({
+              title: "Could not send verification email",
+              description: resetError.message || "Please try again later.",
+              variant: "destructive",
+            });
+            return;
+          }
+
+          toast({
+            title: "Check your email",
+            description:
+              "This email is already linked to a Google account. We've sent you a link to confirm it's you and set your password.",
+          });
+          setIsRegistering(false);
+          return;
         }
       }
 
@@ -287,8 +277,10 @@ export default function AuthPage() {
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/email-verified`,
+          // The database creates the profile and this portal role when the account is created
           data: {
             name: name,
+            role: selectedRole,
           },
         },
       });

@@ -124,7 +124,11 @@ Once your project is ready:
 -- Copy and paste contents of: supabase_database/06_seed.sql
 -- Click "Run"
 
--- 7. Enable realtime for notifications
+-- 7. Apply security fixes (access rules, sign-up trigger, notification function)
+-- Copy and paste contents of: supabase_database/07_security_fixes.sql
+-- Click "Run"
+
+-- 8. Enable realtime for notifications
 ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
 ```
 

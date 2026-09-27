@@ -70,6 +70,7 @@ import {
   uploadFileWithProgress,
   saveExternalUrl,
   validateFile,
+  validateExternalUrl,
   formatFileSize,
   fetchModelFiles,
   deleteFile,
@@ -560,6 +561,19 @@ export default function EditModelPage() {
       return;
     }
 
+    // Check new external links before any change is saved
+    const invalidUrlFile = files.find(
+      (f) => !f.fileId && f.type === "url" && validateExternalUrl(f.url || ""),
+    );
+    if (invalidUrlFile) {
+      toast({
+        title: "Invalid URL",
+        description: `${invalidUrlFile.name}: ${validateExternalUrl(invalidUrlFile.url || "")}`,
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -582,59 +596,60 @@ export default function EditModelPage() {
           newValue: version,
         });
       }
-      if (features !== model.features) {
+      // `model` comes from fetchModelById, so compare against its camelCase fields
+      if (JSON.stringify(features) !== JSON.stringify(model.features || [])) {
         changes.push({
           field: "features",
           oldValue: model.features,
           newValue: features,
         });
       }
-      if (parseFloat(responseTime) !== model.response_time) {
+      if (parseFloat(responseTime) !== Number(model.stats.responseTime)) {
         changes.push({
           field: "response_time",
-          oldValue: model.response_time,
+          oldValue: model.stats.responseTime,
           newValue: parseFloat(responseTime),
         });
       }
-      if (parseFloat(accuracy) !== model.accuracy) {
+      if (parseFloat(accuracy) !== Number(model.stats.accuracy)) {
         changes.push({
           field: "accuracy",
-          oldValue: model.accuracy,
+          oldValue: model.stats.accuracy,
           newValue: parseFloat(accuracy),
         });
       }
-      if ((apiSpec || null) !== model.api_documentation) {
+      if ((apiSpec || null) !== (model.apiDocumentation || null)) {
         changes.push({
           field: "api_documentation",
-          oldValue: model.api_documentation,
+          oldValue: model.apiDocumentation,
           newValue: apiSpec || null,
         });
       }
-      if (priceType !== model.subscription_type) {
+      if (priceType !== model.price) {
         changes.push({
           field: "subscription_type",
-          oldValue: model.subscription_type,
+          oldValue: model.price,
           newValue: priceType,
         });
       }
-      if (priceType === "paid" && parseFloat(price) !== model.price_amount) {
+      if (priceType === "paid" && parseFloat(price) !== Number(model.priceAmount)) {
         changes.push({
           field: "subscription_price",
-          oldValue: model.price_amount,
+          oldValue: model.priceAmount,
           newValue: parseFloat(price),
         });
       }
-      if (detailedDescription !== model.detailed_description) {
+      if (detailedDescription !== (model.detailedDescription || "")) {
         changes.push({
           field: "detailed_description",
-          oldValue: model.detailed_description,
+          oldValue: model.detailedDescription,
           newValue: detailedDescription,
         });
       }
-      if (shortDescription !== model.short_description) {
+      if (shortDescription !== (model.shortDescription || "")) {
         changes.push({
           field: "short_description",
-          oldValue: model.short_description,
+          oldValue: model.shortDescription,
           newValue: shortDescription,
         });
       }
@@ -702,7 +717,7 @@ export default function EditModelPage() {
       let collaboratorSelfRemovalAttempted = false;
       try {
         const currentUserEmail = userProfile?.email || user?.email || "";
-        const isModelOwner = model?.publisher_id === user?.id;
+        const isModelOwner = model?.publisherId === user?.id;
 
         const result = await updateCollaborators(
           modelId,
@@ -730,9 +745,10 @@ export default function EditModelPage() {
 
         if (fileEntry.type === "upload" && fileEntry.file) {
           // Upload file to storage
+          // Store every file in the owner's folder so the owner can always manage it
           await uploadFileWithProgress(
             fileEntry.file,
-            user.id,
+            model.publisherId,
             modelId,
             fileEntry.description,
             (progress) => {
@@ -814,18 +830,27 @@ export default function EditModelPage() {
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from("models")
         .update({
           status: "published",
           updated_at: new Date().toISOString(),
-          published_on: new Date().toISOString(),
+          // Record the first publication only once
+          ...(model?.publishedDate ? {} : { published_on: new Date().toISOString() }),
         })
-        .eq("id", modelId);
+        .eq("id", modelId)
+        .select("id");
 
       if (error) throw error;
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error("You don't have permission to change this model.");
+      }
 
-      setModel({ ...model, status: "published" });
+      setModel({
+        ...model,
+        status: "published",
+        publishedDate: model.publishedDate || new Date().toISOString(),
+      });
 
       toast({
         title: "Model Published",
@@ -849,15 +874,19 @@ export default function EditModelPage() {
     setIsSubmitting(true);
 
     try {
-      const { error } = await supabase
+      const { data: updatedRows, error } = await supabase
         .from("models")
         .update({
           status: "draft",
           updated_at: new Date().toISOString(),
         })
-        .eq("id", modelId);
+        .eq("id", modelId)
+        .select("id");
 
       if (error) throw error;
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error("You don't have permission to change this model.");
+      }
 
       setModel({ ...model, status: "draft" });
 
@@ -924,13 +953,25 @@ export default function EditModelPage() {
         });
         return;
       }
-    } else if (fileType === "url" && !fileUrl.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "External URL is required.",
-        variant: "destructive",
-      });
-      return;
+    } else if (fileType === "url") {
+      if (!fileUrl.trim()) {
+        toast({
+          title: "Validation Error",
+          description: "External URL is required.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const urlError = validateExternalUrl(fileUrl);
+      if (urlError) {
+        toast({
+          title: "Invalid URL",
+          description: urlError,
+          variant: "destructive",
+        });
+        return;
+      }
     }
 
     const newFile: FileEntry = {
@@ -938,7 +979,7 @@ export default function EditModelPage() {
       name: fileName,
       type: fileType,
       description: fileDescription,
-      url: fileType === "url" ? fileUrl : undefined,
+      url: fileType === "url" ? fileUrl.trim() : undefined,
       file: fileType === "upload" ? selectedFile! : undefined,
       size: fileType === "upload" ? selectedFile!.size : undefined,
     };

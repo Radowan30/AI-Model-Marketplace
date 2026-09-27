@@ -181,12 +181,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const fetchUserData = async (userId: string) => {
     try {
-      // Fetch user profile
-      const { data: profile, error: profileError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", userId)
-        .single();
+      // Fetch user profile (private fields like phone are only readable through this function)
+      const { data: profile, error: profileError } =
+        await supabase.rpc("get_my_profile");
 
       if (profileError) {
         console.error("Error fetching user profile:", profileError);

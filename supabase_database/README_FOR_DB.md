@@ -12,6 +12,7 @@ This folder contains all SQL scripts needed to recreate the AI Model Marketplace
 | `04_rls.sql` | Row Level Security policies | ✅ Required |
 | `05_indexes.sql` | Performance indexes | ✅ Required |
 | `06_seed.sql` | Initial data (roles, categories) | ✅ Required |
+| `07_security_fixes.sql` | Access-control hardening, sign-up trigger, notification and statistics functions | ✅ Required |
 
 ## 🚀 Quick Setup (5 minutes)
 
@@ -67,7 +68,14 @@ Go to **SQL Editor** in your Supabase dashboard and run each file **in order**:
 ```
 ✅ Inserts: 2 roles (buyer, publisher) + 10 categories
 
-#### 7️⃣ Enable Realtime
+#### 7️⃣ Security Fixes
+```sql
+-- Copy all contents from: 07_security_fixes.sql
+-- Paste and Run
+```
+✅ Applies: row-level security hardening, profile privacy, sign-up trigger, database-generated notifications, and statistics functions
+
+#### 8️⃣ Enable Realtime
 ```sql
 -- Type this directly in SQL Editor:
 ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;

@@ -146,8 +146,11 @@ export default function ModelDetailsPage() {
     null,
   );
 
-  // Direct collaborator status (bypasses model.collaborators join issues)
-  const [isUserCollaborator, setIsUserCollaborator] = useState(false);
+  // Direct collaborator status (bypasses model.collaborators join issues);
+  // null until checked, so the Rate button doesn't flash for collaborators
+  const [isUserCollaborator, setIsUserCollaborator] = useState<boolean | null>(
+    null,
+  );
 
   // Fetch model data
   useEffect(() => {
@@ -224,10 +227,11 @@ export default function ModelDetailsPage() {
   }, [modelId, user]);
 
   // Direct collaborator check - queries collaborators table directly
-  // This bypasses any RLS issues with the model.collaborators join
+  // This bypasses any RLS issues with the model.collaborators join.
+  // Runs in both portals: collaborators can't rate the model even as buyers.
   useEffect(() => {
     const checkCollaboratorStatus = async () => {
-      if (!modelId || !user || currentRole !== "publisher") {
+      if (!modelId || !user) {
         setIsUserCollaborator(false);
         return;
       }
@@ -267,7 +271,7 @@ export default function ModelDetailsPage() {
     };
 
     checkCollaboratorStatus();
-  }, [modelId, user, userProfile, currentRole]);
+  }, [modelId, user, userProfile]);
 
   // Check file access and load files based on subscription status
   useEffect(() => {
@@ -709,12 +713,16 @@ export default function ModelDetailsPage() {
 
       if (deleteTarget.type === "discussion") {
         // Delete entire discussion (cascade will delete all comments)
-        const { error } = await supabase
+        const { data: deletedRows, error } = await supabase
           .from("discussions")
           .delete()
-          .eq("id", deleteTarget.id);
+          .eq("id", deleteTarget.id)
+          .select("id");
 
         if (error) throw error;
+        if (!deletedRows || deletedRows.length === 0) {
+          throw new Error("Discussion was not deleted");
+        }
 
         // Remove from local state
         setDiscussions((prev) => prev.filter((d) => d.id !== deleteTarget.id));
@@ -728,12 +736,16 @@ export default function ModelDetailsPage() {
         });
       } else {
         // Delete individual comment
-        const { error } = await supabase
+        const { data: deletedRows, error } = await supabase
           .from("comments")
           .delete()
-          .eq("id", deleteTarget.id);
+          .eq("id", deleteTarget.id)
+          .select("id");
 
         if (error) throw error;
+        if (!deletedRows || deletedRows.length === 0) {
+          throw new Error("Comment was not deleted");
+        }
 
         // Remove from local state
         setDiscussions((prev) =>
@@ -773,7 +785,10 @@ export default function ModelDetailsPage() {
   // Use isUserCollaborator state (from direct DB query) instead of model.collaborators
   // This ensures collaborator detection works even if the join has RLS issues
   const isCollaborator =
-    currentRole === "publisher" && isUserCollaborator && !isModelOwner;
+    currentRole === "publisher" && !!isUserCollaborator && !isModelOwner;
+  // The model's owner and collaborators can't rate it, in either portal
+  const canRate =
+    !isPublisher && !isModelOwner && isUserCollaborator === false;
 
   const handleBack = () => {
     window.history.back();
@@ -886,17 +901,7 @@ export default function ModelDetailsPage() {
       const sumRatings =
         allRatings?.reduce((sum, r) => sum + r.rating_value, 0) || 0;
       const newAverageRating = totalRatings > 0 ? sumRatings / totalRatings : 0;
-
-      // Update model with new average rating
-      const { error: updateError } = await supabase
-        .from("models")
-        .update({
-          average_rating: newAverageRating,
-          total_rating_count: totalRatings,
-        })
-        .eq("id", modelId);
-
-      if (updateError) throw updateError;
+      // The database keeps the model's stored average in step with the ratings table
 
       // Create notification for publisher(s)
       await triggerNewRatingNotification({
@@ -936,11 +941,15 @@ export default function ModelDetailsPage() {
 
       setShowRatingModal(false);
       setSelectedRating(0);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error submitting rating:", error);
+      // 42501: the database refused because the user owns or collaborates on this model
       toast({
         title: "Rating Failed",
-        description: "Failed to submit rating. Please try again.",
+        description:
+          error?.code === "42501"
+            ? "You can't rate a model you publish or collaborate on."
+            : "Failed to submit rating. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -1138,6 +1147,7 @@ export default function ModelDetailsPage() {
         modelName: model.name,
         publisherId: model.publisherId,
         discussionId: discussionId,
+        commentId: data.id,
         commenterName: userProfile?.name || "User",
         commenterId: user?.id || "",
         commentPreview: content,
@@ -1362,7 +1372,7 @@ export default function ModelDetailsPage() {
                     </span>
                   )}
                 </p>
-                {!isPublisher && (
+                {canRate && (
                   <button
                     onClick={() => setShowRatingModal(true)}
                     className="text-xs text-primary hover:underline"
@@ -1481,11 +1491,13 @@ export default function ModelDetailsPage() {
                     First Published On:
                   </span>
                   <span className="break-words">
-                    {new Date(model.publishedDate).toLocaleDateString("en-US", {
-                      year: "numeric",
-                      month: "long",
-                      day: "numeric",
-                    })}
+                    {model.publishedDate
+                      ? new Date(model.publishedDate).toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "long",
+                          day: "numeric",
+                        })
+                      : "Not recorded"}
                   </span>
                 </div>
                 <div className="flex flex-col sm:flex-row gap-1 sm:gap-2">
