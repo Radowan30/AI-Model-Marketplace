@@ -84,3 +84,70 @@ DROP TRIGGER IF EXISTS prevent_model_owner_change ON public.models;
 CREATE TRIGGER prevent_model_owner_change
 BEFORE UPDATE OF publisher_id ON public.models
 FOR EACH ROW EXECUTE FUNCTION public.prevent_model_owner_change();
+
+-- =====================================================
+-- SECTION 3: SUBSCRIPTIONS
+-- =====================================================
+
+-- Buyers may only subscribe to free, published models (no payment flow exists)
+DROP POLICY IF EXISTS "Buyers can create subscriptions" ON public.subscriptions;
+CREATE POLICY "Buyers subscribe to free published models"
+ON public.subscriptions FOR INSERT
+WITH CHECK (
+  buyer_id = auth.uid()
+  AND EXISTS (
+    SELECT 1 FROM public.user_roles ur
+    JOIN public.roles r ON ur.role_id = r.id
+    WHERE ur.user_id = auth.uid() AND r.role_name = 'buyer'
+  )
+  AND EXISTS (
+    SELECT 1 FROM public.models m
+    WHERE m.id = subscriptions.model_id
+      AND m.status = 'published' AND m.subscription_type = 'free'
+  )
+);
+
+DROP POLICY IF EXISTS "Publishers can approve, buyers can cancel" ON public.subscriptions;
+CREATE POLICY "Buyers cancel or reactivate their subscriptions"
+ON public.subscriptions FOR UPDATE
+USING (buyer_id = auth.uid())
+WITH CHECK (
+  buyer_id = auth.uid()
+  AND (
+    status = 'cancelled'
+    OR EXISTS (
+      SELECT 1 FROM public.models m
+      WHERE m.id = subscriptions.model_id
+        AND m.status = 'published' AND m.subscription_type = 'free'
+    )
+  )
+);
+
+CREATE POLICY "Owners manage subscriptions to their models"
+ON public.subscriptions FOR UPDATE
+USING (public.is_model_owner(model_id))
+WITH CHECK (public.is_model_owner(model_id));
+
+-- Collaborators see subscribers of models they co-manage (Publisher Dashboard)
+CREATE POLICY "Collaborators can view subscriptions to their models"
+ON public.subscriptions FOR SELECT
+USING (public.is_collaborator_by_email(model_id));
+
+-- A subscription cannot be moved to another buyer or model
+CREATE OR REPLACE FUNCTION public.prevent_subscription_key_change()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path = public
+AS $function$
+BEGIN
+  IF NEW.buyer_id IS DISTINCT FROM OLD.buyer_id OR NEW.model_id IS DISTINCT FROM OLD.model_id THEN
+    RAISE EXCEPTION 'A subscription cannot be moved to another buyer or model' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS prevent_subscription_key_change ON public.subscriptions;
+CREATE TRIGGER prevent_subscription_key_change
+BEFORE UPDATE ON public.subscriptions
+FOR EACH ROW EXECUTE FUNCTION public.prevent_subscription_key_change();
