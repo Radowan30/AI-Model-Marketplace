@@ -2,20 +2,23 @@
 
 A comprehensive platform for publishing, discovering, and subscribing to AI models. Publishers can showcase their AI models with detailed documentation, pricing, and collaboration features, while buyers can browse, subscribe to, and download models.
 
+- **Live app:** https://ai-model-marketplace.onrender.com/
+- **Source code:** https://github.com/Radowan30/AI-Model-Marketplace
+
 ## ✨ Features
 
 ### For Publishers
 - **Model Management**: Create, edit, and publish AI models with rich descriptions
 - **Collaboration**: Add collaborators to co-manage models
-- **Analytics Dashboard**: Track views, subscribers, ratings, and revenue
+- **Analytics Dashboard**: Track views, subscribers, categories, and each model's downloads and ratings
 - **File Management**: Upload model files or link external resources
-- **API Documentation**: Provide comprehensive API specs in JSON, YAML, or Markdown
+- **API Documentation**: Provide API specs in JSON, YAML, Markdown, or plain text
 - **Real-time Notifications**: Get notified of subscriptions, ratings, and discussions
 
 ### For Buyers
 - **Model Discovery**: Browse and search through published AI models
-- **Subscription Management**: Subscribe to models and track active subscriptions
-- **Ratings & Reviews**: Rate models and participate in discussions
+- **Subscription Management**: Subscribe to free models instantly and manage subscriptions (paid subscriptions show "Payment method coming soon")
+- **Ratings & Discussions**: Rate models from 1 to 5 stars and take part in discussion threads
 - **Activity Tracking**: View your subscription and interaction history
 - **Real-time Updates**: Receive notifications for model updates and replies
 
@@ -23,7 +26,7 @@ A comprehensive platform for publishing, discovering, and subscribing to AI mode
 - **Dual Role System**: Users can be both buyers and publishers
 - **Real-time Notifications**: Powered by Supabase Realtime
 - **Secure Authentication**: Google OAuth and email/password login
-- **Row Level Security**: Database-level access control
+- **Row Level Security**: Database-level access control on every table and on stored files
 - **MIMOS Brand Integration**: Custom themed UI with brand colors
 
 ## 🛠️ Tech Stack
@@ -70,8 +73,8 @@ Before you begin, ensure you have the following installed:
 ### 1. Clone the Repository
 
 ```bash
-git clone <your-repository-url>
-cd AI-Marketplace
+git clone https://github.com/Radowan30/AI-Model-Marketplace.git
+cd AI-Model-Marketplace
 ```
 
 ### 2. Install Dependencies
@@ -140,256 +143,37 @@ You should see 15+ tables listed.
 
 #### Set Up Storage Bucket for Model Files
 
-The AI Marketplace uses Supabase Storage for model file uploads. You need to create a storage bucket and configure access policies:
+Model files are stored in a private Supabase Storage bucket:
 
-1. **Create Storage Bucket**:
-   - In Supabase Dashboard, go to **Storage** (left sidebar)
-   - Click **New Bucket**
-   - Configure:
-     - **Name**: `model-files`
-     - **Public bucket**: ❌ **Keep disabled** (private bucket with controlled access)
-     - **File size limit**: `52428800` (50 MB)
-   - Click **Create bucket**
+1. In the Supabase Dashboard, go to **Storage** → **New Bucket**
+2. Configure:
+   - **Name**: `model-files`
+   - **Public bucket**: ❌ **Keep disabled.** Files are only reachable through short-lived signed links, after an access check.
+   - **File size limit**: `52428800` (50 MB)
+3. Click **Create bucket**
 
-2. **Set Up Storage Policies** (Choose Method A or Method B):
+The bucket's three access policies (upload, download, delete) are created by `07_security_fixes.sql`, so you don't need to add them by hand:
 
-   Storage policies control who can upload, download, and delete files. You need to create 3 policies total.
+- **Upload:** only into a model the uploader owns or collaborates on.
+- **Download:** by the model's owner, its collaborators, and buyers with an active subscription.
+- **Delete:** by the model's owner and collaborators.
 
-   ### Method A: Using SQL Editor (Recommended - Easier)
+⚠️ Don't paste storage policies from older guides. Earlier versions matched collaborators by the editable profile email, which let anyone impersonate a collaborator.
 
-   1. In Supabase Dashboard, go to **SQL Editor** (left sidebar)
-   2. Click **New Query**
-   3. Copy and paste ALL THREE policy statements below into the editor
-   4. Click **Run** (or press Ctrl+Enter)
+**✅ Verify storage setup** in the SQL Editor:
+```sql
+-- Bucket exists and is private (public = false, file_size_limit = 52428800)
+SELECT id, public, file_size_limit FROM storage.buckets WHERE id = 'model-files';
 
-   ```sql
-   -- Policy 1: Allow owners and collaborators to upload
-   CREATE POLICY "Allow owners and collaborators to upload"
-   ON storage.objects FOR INSERT
-   TO authenticated
-   WITH CHECK (
-     bucket_id = 'model-files' AND (
-       (storage.foldername(name))[1] = auth.uid()::text
-       OR
-       EXISTS (
-         SELECT 1
-         FROM models m
-         JOIN collaborators c ON c.model_id = m.id
-         JOIN users u ON u.id = auth.uid()
-         WHERE (storage.foldername(objects.name))[1] = m.publisher_id::text
-           AND (storage.foldername(objects.name))[2] = m.id::text
-           AND lower(c.email) = lower(u.email)
-       )
-     )
-   );
-
-   -- Policy 2: Allow owners, subscribers, and collaborators to download
-   CREATE POLICY "Allow owners, subscribers, and collaborators to download"
-   ON storage.objects FOR SELECT
-   TO authenticated
-   USING (
-     bucket_id = 'model-files' AND (
-       (storage.foldername(name))[1] = auth.uid()::text
-       OR
-       EXISTS (
-         SELECT 1
-         FROM model_files mf
-         JOIN subscriptions s ON s.model_id = mf.model_id
-         WHERE mf.file_path = objects.name
-           AND s.buyer_id = auth.uid()
-           AND s.status = 'active'
-       )
-       OR
-       EXISTS (
-         SELECT 1
-         FROM model_files mf
-         JOIN collaborators c ON c.model_id = mf.model_id
-         JOIN users u ON u.id = auth.uid()
-         WHERE mf.file_path = objects.name
-           AND lower(c.email) = lower(u.email)
-       )
-     )
-   );
-
-   -- Policy 3: Allow owners and collaborators to delete
-   CREATE POLICY "Allow owners and collaborators to delete"
-   ON storage.objects FOR DELETE
-   TO authenticated
-   USING (
-     bucket_id = 'model-files' AND (
-       (storage.foldername(name))[1] = auth.uid()::text
-       OR
-       EXISTS (
-         SELECT 1
-         FROM model_files mf
-         JOIN collaborators c ON c.model_id = mf.model_id
-         JOIN users u ON u.id = auth.uid()
-         WHERE mf.file_path = objects.name
-           AND lower(c.email) = lower(u.email)
-       )
-     )
-   );
-   ```
-
-   ✅ You should see "Success. No rows returned" for each policy.
-
-   ---
-
-   ### Method B: Using Storage UI (Alternative)
-
-   If you prefer the UI, create each policy separately:
-
-   #### Policy 1: Upload Policy
-
-   1. Go to **Storage** → `model-files` bucket → **Policies** tab
-   2. Click **New Policy**
-   3. Click **For full customization**
-   4. Fill in the form:
-
-   **Policy name** field - paste:
-   ```
-   Allow owners and collaborators to upload
-   ```
-
-   **Allowed operation** dropdown - select:
-   ```
-   INSERT
-   ```
-
-   **Target roles** dropdown - select:
-   ```
-   authenticated
-   ```
-
-   **WITH CHECK** field - paste this EXACT code:
-   ```sql
-   bucket_id = 'model-files' AND (
-     (storage.foldername(name))[1] = auth.uid()::text
-     OR
-     EXISTS (
-       SELECT 1
-       FROM models m
-       JOIN collaborators c ON c.model_id = m.id
-       JOIN users u ON u.id = auth.uid()
-       WHERE (storage.foldername(objects.name))[1] = m.publisher_id::text
-         AND (storage.foldername(objects.name))[2] = m.id::text
-         AND lower(c.email) = lower(u.email)
-     )
-   )
-   ```
-
-   5. Click **Review** → **Save policy**
-
-   #### Policy 2: Download Policy
-
-   1. Click **New Policy** again
-   2. Click **For full customization**
-   3. Fill in the form:
-
-   **Policy name** field - paste:
-   ```
-   Allow owners, subscribers, and collaborators to download
-   ```
-
-   **Allowed operation** dropdown - select:
-   ```
-   SELECT
-   ```
-
-   **Target roles** dropdown - select:
-   ```
-   authenticated
-   ```
-
-   **USING** field - paste this EXACT code:
-   ```sql
-   bucket_id = 'model-files' AND (
-     (storage.foldername(name))[1] = auth.uid()::text
-     OR
-     EXISTS (
-       SELECT 1
-       FROM model_files mf
-       JOIN subscriptions s ON s.model_id = mf.model_id
-       WHERE mf.file_path = objects.name
-         AND s.buyer_id = auth.uid()
-         AND s.status = 'active'
-     )
-     OR
-     EXISTS (
-       SELECT 1
-       FROM model_files mf
-       JOIN collaborators c ON c.model_id = mf.model_id
-       JOIN users u ON u.id = auth.uid()
-       WHERE mf.file_path = objects.name
-         AND lower(c.email) = lower(u.email)
-     )
-   )
-   ```
-
-   4. Click **Review** → **Save policy**
-
-   #### Policy 3: Delete Policy
-
-   1. Click **New Policy** again
-   2. Click **For full customization**
-   3. Fill in the form:
-
-   **Policy name** field - paste:
-   ```
-   Allow owners and collaborators to delete
-   ```
-
-   **Allowed operation** dropdown - select:
-   ```
-   DELETE
-   ```
-
-   **Target roles** dropdown - select:
-   ```
-   authenticated
-   ```
-
-   **USING** field - paste this EXACT code:
-   ```sql
-   bucket_id = 'model-files' AND (
-     (storage.foldername(name))[1] = auth.uid()::text
-     OR
-     EXISTS (
-       SELECT 1
-       FROM model_files mf
-       JOIN collaborators c ON c.model_id = mf.model_id
-       JOIN users u ON u.id = auth.uid()
-       WHERE mf.file_path = objects.name
-         AND lower(c.email) = lower(u.email)
-     )
-   )
-   ```
-
-   4. Click **Review** → **Save policy**
-
-   ---
-
-3. **Verify Storage Setup**:
-
-   Go to **SQL Editor** and run:
-   ```sql
-   -- Check bucket exists
-   SELECT id, name, public, file_size_limit
-   FROM storage.buckets
-   WHERE name = 'model-files';
-
-   -- Check policies are active (should return 3 policies)
-   SELECT policyname, cmd
-   FROM pg_policies
-   WHERE schemaname = 'storage'
-     AND tablename = 'objects'
-     AND policyname LIKE '%model-files%'
-   ORDER BY policyname;
-   ```
-
-   Expected results:
-   - ✅ Bucket `model-files` exists with `public = false`
-   - ✅ Three policies: INSERT, SELECT, DELETE
+-- Three policies: INSERT, SELECT and DELETE
+SELECT policyname, cmd FROM pg_policies
+WHERE schemaname = 'storage' AND tablename = 'objects'
+  AND policyname IN (
+    'Allow owners and collaborators to upload',
+    'Allow owners, subscribers, and collaborators to download',
+    'Allow owners and collaborators to delete'
+  );
+```
 
 ### 4. Configure Environment Variables
 
@@ -433,6 +217,22 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
 2. **Email** should be enabled by default
 3. Configure email templates if needed under **Authentication** → **Email Templates**
 
+#### Password Settings
+
+The app requires new passwords to be at least 8 characters. To enforce the same rule on the server, go to **Authentication** → **Sign In / Providers** → **Email** and:
+- set **Minimum password length** to `8`
+- turn on **Prevent use of leaked passwords**
+
+#### URL Configuration
+
+Email links and Google sign-in return to these app pages: `/email-verified`, `/reset-password` and `/auth/callback`. Under **Authentication** → **URL Configuration**:
+- Set **Site URL** to your app's address (e.g. `https://ai-model-marketplace.onrender.com`)
+- Add **Redirect URLs** for every address you run the app on, e.g.:
+  ```
+  https://ai-model-marketplace.onrender.com/**
+  http://localhost:5000/**
+  ```
+
 ### 6. Run the Application
 
 #### Development Mode
@@ -440,11 +240,10 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
 Run the server using the following command:
 
 ```bash
-# Terminal: Start server
 npm run dev
 ```
 
-The application will be available at: http://localhost:5000
+The application will be available at: http://localhost:5000. In development the server only listens on this computer. Set `HOST=0.0.0.0` if you need to reach it from other devices.
 
 #### Production Build
 
@@ -452,7 +251,7 @@ The application will be available at: http://localhost:5000
 # Build for production
 npm run build
 
-# Start production server
+# Start production server (listens on all interfaces, port 5000 unless PORT is set)
 npm start
 ```
 
@@ -461,38 +260,49 @@ npm start
 ### First-Time Setup
 
 1. **Create an Account**:
-   - Go to http://localhost:5000
-   - Click "Sign In"
-   - Sign up with Google or email/password
-   - Choose your role (Buyer, Publisher, or Both)
+   - Go to http://localhost:5000 and click **Login / Register**
+   - Pick the **Buyer Portal** or **Publisher Portal** tab, then **Sign Up** with email/password (at least 8 characters) or continue with Google
+   - To use both portals, sign up again on the other tab with the same email. Your account gets the second role.
 
 2. **As a Publisher**:
-   - Go to "My Models" from the sidebar
-   - Click "Create New Model"
-   - Fill in model details:
-     - Basic info (name, description, version)
-     - Technical details (accuracy, response time)
-     - Categories
-     - Pricing (free or paid)
-     - API documentation (supports JSON, YAML, Markdown)
-     - Upload files or add external URLs
-   - Click "Save as Draft" or "Publish"
+   - Go to **My Models** → **Create New Model**
+   - Complete the four steps:
+     - General Info: name, descriptions, categories, version, free or paid
+     - Technical Details: features, response time, accuracy, API specification in JSON, YAML, Markdown or plain text
+     - Files & Assets: uploads up to 50 MB, or `https://` links for larger files
+     - Collaborators (optional)
+   - Click **Create Model** to publish, or leave the wizard and choose **Save as Draft**
 
 3. **As a Buyer**:
-   - Browse the Marketplace
-   - Use filters to find models (category, price, search)
-   - Click on a model to view details
-   - Click "Subscribe" to access the model
-   - View your subscriptions in "My Subscriptions"
+   - Open **Browse Marketplace** and filter by search, price and category
+   - Open a model and click **Subscribe for Free** to unlock its files. Paid models show "Payment method coming soon".
+   - Manage subscriptions in **My Subscriptions**
 
 ### Key Features to Try
 
-- **Rate Models**: Give 1-5 star ratings on model detail pages
-- **Discussions**: Start conversations and reply to comments
+- **Rate Models**: Give 1–5 star ratings on model pages. A model's owner and collaborators can't rate their own model.
+- **Discussions**: Start threads, comment, and reply to comments
 - **Notifications**: Real-time updates in the notification center (bell icon)
-- **Collaboration**: Publishers can add collaborators to manage models together
-- **Analytics**: Publishers can view detailed stats on their dashboard
-- **Activity Log**: Track all your actions in the dashboard
+- **Collaboration**: Publishers can add collaborators by email to manage models together
+- **Analytics**: Publishers see views, subscribers and categories on their dashboard
+- **Activity Log**: Buyers see their recent subscriptions, downloads, comments and ratings on the dashboard
+
+## 🧪 Testing
+
+Two automated test suites run against the Supabase project in `.env.local`. They create temporary accounts named `mimos-test-*`, and delete them and their data when they finish.
+
+```bash
+npm run test:security    # 31 tests: database access rules, attacked as signed-out and signed-in users
+npm run build            # the server tests run the production build
+npm run test:server      # 6 tests: API routes, rate limit, removed endpoints
+npm run test:cleanup     # removes mimos-test-* accounts left by an interrupted run
+```
+
+⚠️ The tests write to the configured project (temporary accounts, models, files). Point `.env.local` at a test project if you don't want that in production.
+
+## 🚢 Deployment
+
+The app is deployed on Render at https://ai-model-marketplace.onrender.com/, built from the `main` branch. Render redeploys automatically when `main` is pushed, so run `npm run check`, `npm run build` and both test suites before pushing to `main`. The health check endpoint is `GET /api/health`.
 
 ## 🐛 Troubleshooting
 
@@ -505,17 +315,19 @@ npm start
 # Clear node modules and reinstall
 rm -rf node_modules package-lock.json
 npm install
-
-# Clear build cache
-npm run clean  # (if you add this script)
+npm run check
 ```
+
+### "Too many requests" on sign-up
+
+The `/api/auth/*` endpoints allow 20 requests per 10 minutes per IP address. Wait for the window to pass, or restart the server.
 
 ## 📝 Available Scripts
 
 ```bash
 # Development (Recommended)
 npm run dev              # Start full-stack server (frontend + backend on port 5000)
-npm run dev:client       # [Alternative] Start only Vite frontend dev server
+npm run dev:client       # [Alternative] Start only the Vite frontend (no /api endpoints)
 
 # Build
 npm run build            # Build for production
@@ -523,9 +335,12 @@ npm run check            # TypeScript type checking
 
 # Production
 npm start                # Start production server
+
+# Tests
+npm run test:security    # Database security tests
+npm run test:server      # API route tests (run npm run build first)
+npm run test:cleanup     # Remove leftover test accounts
 ```
 **Note**: You only need `npm run dev` for development. It runs the Express server with integrated Vite middleware, serving both frontend and backend on port 5000.
 
 ---
-
-Made with ❤️ for MIMOS Berhad

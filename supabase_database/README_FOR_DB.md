@@ -130,8 +130,8 @@ ORDER BY table_name;
 2. `is_model_owner()` - Check model ownership
 3. `is_collaborator_by_email()` - Check collaborator status
 4. `create_user_with_role()` - User creation with role
-5. `create_notification()` - Notification creation
-6. `add_email_identity_to_user()` - Add password to Google accounts
+5. `create_notification()` - Notification creation (server-only after `07_security_fixes.sql`)
+6. `add_email_identity_to_user()` - Link email sign-in to a Google account (server-only after `07_security_fixes.sql`)
 
 ### Triggers (03_triggers.sql)
 - Auto-update `updated_at` on:
@@ -161,6 +161,21 @@ Performance optimizations for:
 Initial data:
 - **Roles**: buyer, publisher
 - **Categories**: NLP, Computer Vision, Speech Recognition, etc.
+
+### Security Fixes (07_security_fixes.sql)
+Hardens the access rules from 04 and adds the functions the app now depends on. **Required:** the app will not work correctly without it.
+
+- **Identity:** `current_user_email()` returns the caller's verified login email, and collaborator access is based on it, never the editable profile email. `add_email_identity_to_user()` and `create_notification()` can only be called by the server (service role).
+- **Account creation:** the `on_auth_user_created` trigger (`handle_new_auth_user()`) creates the profile and requested portal role at sign-up. `create_user_with_role()` now only acts on the caller's own account.
+- **Profiles:** `can_view_user()` limits who can see a profile. Phone, company and bio are readable only by their owner, through `get_my_profile()`. `protect_user_email` keeps the profile email equal to the login email, and emails are unique regardless of letter case.
+- **Models:** a model can only be created under the caller's account, and `prevent_model_owner_change` stops ownership from changing.
+- **Subscriptions:** only for free, published models. `prevent_subscription_key_change` stops a subscription moving to another buyer or model. Collaborators can read their models' subscribers.
+- **Discussions and comments:** always posted as the caller. The author names are set by triggers (`set_discussion_author_name`, `set_comment_author_names`). The model's owner and collaborators can delete them.
+- **Views and statistics:** a view is recorded once per user per model, and viewing history is private. Totals come from `get_model_view_stats()`, `get_model_view_timestamps()`, `get_model_download_counts()` and `get_model_subscriber_counts()`.
+- **Ratings:** a model's owner and collaborators can't rate it. The `refresh_model_rating` trigger keeps the stored average and count current.
+- **Categories:** custom categories are attributed to their creator and limited to 100 characters.
+- **Storage:** creates the three `model-files` bucket policies (upload into managed models only; download by owner, collaborators and active subscribers; delete by owner and collaborators).
+- **Notifications:** created only by `notify_event()`. It checks that the caller really performed the action, then decides the recipients and wording itself.
 
 ## ⚠️ Important Notes
 
@@ -197,12 +212,12 @@ Initial data:
 
 ## 📊 Database Stats
 
-After complete setup:
-- **Tables**: 15
-- **Functions**: 6
-- **Triggers**: 5
-- **RLS Policies**: 40+
-- **Indexes**: 30+
+After complete setup (01–07):
+- **Tables**: 15, all with Row Level Security
+- **Functions**: 22
+- **Triggers**: 11 on application tables, plus `on_auth_user_created` on `auth.users`
+- **RLS Policies**: 40+ on application tables, plus 3 storage policies
+- **Indexes**: 30+ (plus primary keys and unique constraints)
 - **Foreign Keys**: 25+
 - **Check Constraints**: 10+
 
@@ -213,7 +228,11 @@ After complete setup:
 ✅ Check constraints validate data
 ✅ Unique constraints prevent duplicates
 ✅ Cascade deletes maintain data consistency
-✅ Security definer functions for admin operations
+✅ Security definer functions for admin operations, with privileged ones callable only by the server
+✅ Access decisions use the verified login email, never editable profile data
+✅ Private profile fields (phone, company, bio) readable only by their owner
+✅ Notifications created only by the database, after checking the caller's action
+✅ Automated tests for these rules: `npm run test:security` (see the main README)
 
 ## 📚 Additional Resources
 
