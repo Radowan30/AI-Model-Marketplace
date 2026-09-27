@@ -8,6 +8,8 @@ import { NotificationCenter } from "@/components/NotificationCenter";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogTitle,
 } from "@/components/ui/dialog";
 
 interface NavbarProps {
@@ -217,6 +219,11 @@ export function Navbar({ layout = "public", onMobileSidebarToggle, mobileSidebar
       {isDashboard && (
         <Dialog open={notificationDialogOpen} onOpenChange={setNotificationDialogOpen}>
           <DialogContent className="max-w-[95vw] sm:max-w-[500px] p-0 gap-0">
+            {/* Named for screen readers; the notification center shows its own heading */}
+            <DialogTitle className="sr-only">Notifications</DialogTitle>
+            <DialogDescription className="sr-only">
+              Your notifications for the current portal
+            </DialogDescription>
             <NotificationCenter
               notifications={notifications}
               onMarkAsRead={markAsRead}
