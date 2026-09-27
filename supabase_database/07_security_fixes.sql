@@ -698,3 +698,259 @@ EXCEPTION WHEN OTHERS THEN
   RETURN json_build_object('success', false, 'error', SQLERRM, 'sqlstate', SQLSTATE);
 END;
 $function$;
+
+-- =====================================================
+-- SECTION 11: NOTIFICATIONS
+-- =====================================================
+
+-- Notifications are only created by notify_event (below)
+DROP POLICY IF EXISTS "Authenticated users can insert notifications" ON public.notifications;
+REVOKE EXECUTE ON FUNCTION public.create_notification(uuid, text, text, text, uuid, text, uuid, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.create_notification(uuid, text, text, text, uuid, text, uuid, jsonb) TO service_role;
+
+-- Accounts behind a model's collaborator emails (verified login emails only)
+CREATE OR REPLACE FUNCTION public.collaborator_user_ids(p_model_id uuid)
+ RETURNS TABLE (user_id uuid)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path = public
+AS $function$
+  SELECT DISTINCT pu.id
+  FROM public.collaborators c
+  JOIN auth.users au ON lower(au.email) = lower(c.email) AND au.email_confirmed_at IS NOT NULL
+  JOIN public.users pu ON pu.id = au.id
+  WHERE c.model_id = p_model_id
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.collaborator_user_ids(uuid) FROM PUBLIC, anon, authenticated;
+
+-- Creates the notifications for something the caller just did. The database checks the
+-- caller really did it and decides the recipients and wording, so notifications can't
+-- be forged or aimed at arbitrary users.
+CREATE OR REPLACE FUNCTION public.notify_event(p_event text, p_ref uuid, p_changes jsonb DEFAULT NULL)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path = public
+AS $function$
+DECLARE
+  v_caller uuid := auth.uid();
+  v_caller_name text;
+  v_model public.models%ROWTYPE;
+  v_disc public.discussions%ROWTYPE;
+  v_comment public.comments%ROWTYPE;
+  v_rating integer;
+  v_recipient uuid;
+  v_preview text;
+  v_field text;
+  v_fields text[];
+  v_message text;
+  v_count integer := 0;
+  v_allowed_fields text[] := ARRAY['name', 'version', 'features', 'response_time', 'accuracy',
+    'api_documentation', 'subscription_type', 'subscription_price', 'detailed_description', 'short_description'];
+BEGIN
+  IF v_caller IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated' USING ERRCODE = '42501';
+  END IF;
+
+  SELECT COALESCE(u.name, 'User') INTO v_caller_name FROM public.users u WHERE u.id = v_caller;
+  v_caller_name := COALESCE(v_caller_name, 'User');
+
+  IF p_event = 'subscribed' THEN
+    SELECT * INTO v_model FROM public.models WHERE id = p_ref;
+    IF NOT FOUND OR NOT EXISTS (
+      SELECT 1 FROM public.subscriptions s
+      WHERE s.model_id = p_ref AND s.buyer_id = v_caller AND s.status = 'active'
+    ) THEN
+      RAISE EXCEPTION 'No active subscription' USING ERRCODE = '42501';
+    END IF;
+    -- Ignore repeats within a minute (double clicks)
+    IF EXISTS (
+      SELECT 1 FROM public.notifications n
+      WHERE n.user_id = v_caller AND n.notification_type = 'subscription_success'
+        AND n.related_model_id = p_ref AND n.created_at > now() - interval '1 minute'
+    ) THEN
+      RETURN 0;
+    END IF;
+
+    IF v_model.publisher_id <> v_caller THEN
+      INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name, metadata)
+      VALUES (v_model.publisher_id, 'new_subscription', 'New Subscription to ' || v_model.model_name,
+              v_caller_name || ' subscribed to your model', v_model.id, v_model.model_name,
+              jsonb_build_object('subscriberName', v_caller_name, 'subscriberEmail', public.current_user_email(), 'isCollaboratorModel', false));
+      v_count := v_count + 1;
+    END IF;
+
+    FOR v_recipient IN SELECT t.user_id FROM public.collaborator_user_ids(v_model.id) t LOOP
+      IF v_recipient <> v_caller AND v_recipient <> v_model.publisher_id THEN
+        INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name, metadata)
+        VALUES (v_recipient, 'collaborator_subscription', 'New Subscription to ' || v_model.model_name,
+                v_caller_name || ' subscribed to a model you collaborate on', v_model.id, v_model.model_name,
+                jsonb_build_object('subscriberName', v_caller_name, 'subscriberEmail', public.current_user_email(), 'isCollaboratorModel', true));
+        v_count := v_count + 1;
+      END IF;
+    END LOOP;
+
+    INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name)
+    VALUES (v_caller, 'subscription_success', 'Successfully Subscribed to ' || v_model.model_name,
+            'You can now access this model''s API and files', v_model.id, v_model.model_name);
+    RETURN v_count + 1;
+
+  ELSIF p_event = 'discussion' THEN
+    SELECT * INTO v_disc FROM public.discussions WHERE id = p_ref;
+    IF NOT FOUND OR v_disc.user_id IS DISTINCT FROM v_caller THEN
+      RAISE EXCEPTION 'Not allowed' USING ERRCODE = '42501';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.notifications n WHERE n.related_discussion_id = p_ref AND n.notification_type = 'new_discussion') THEN
+      RETURN 0;
+    END IF;
+    SELECT * INTO v_model FROM public.models WHERE id = v_disc.model_id;
+    v_preview := left(v_disc.content, 100) || CASE WHEN length(v_disc.content) > 100 THEN '...' ELSE '' END;
+
+    IF v_model.publisher_id <> v_caller THEN
+      INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name, related_discussion_id, metadata)
+      VALUES (v_model.publisher_id, 'new_discussion', 'New Discussion on ' || v_model.model_name,
+              v_caller_name || ' started a discussion: "' || v_preview || '"', v_model.id, v_model.model_name, v_disc.id,
+              jsonb_build_object('commenterName', v_caller_name, 'commentPreview', v_disc.content));
+      v_count := v_count + 1;
+    END IF;
+    FOR v_recipient IN SELECT t.user_id FROM public.collaborator_user_ids(v_model.id) t LOOP
+      IF v_recipient <> v_caller AND v_recipient <> v_model.publisher_id THEN
+        INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name, related_discussion_id, metadata)
+        VALUES (v_recipient, 'new_discussion', 'New Discussion on ' || v_model.model_name,
+                v_caller_name || ' started a discussion on a model you collaborate on', v_model.id, v_model.model_name, v_disc.id,
+                jsonb_build_object('commenterName', v_caller_name, 'commentPreview', v_disc.content));
+        v_count := v_count + 1;
+      END IF;
+    END LOOP;
+    RETURN v_count;
+
+  ELSIF p_event = 'comment' THEN
+    SELECT * INTO v_comment FROM public.comments WHERE id = p_ref;
+    IF NOT FOUND OR v_comment.user_id IS DISTINCT FROM v_caller THEN
+      RAISE EXCEPTION 'Not allowed' USING ERRCODE = '42501';
+    END IF;
+    IF EXISTS (SELECT 1 FROM public.notifications n WHERE n.metadata ->> 'commentId' = p_ref::text) THEN
+      RETURN 0;
+    END IF;
+    SELECT * INTO v_disc FROM public.discussions WHERE id = v_comment.discussion_id;
+    SELECT * INTO v_model FROM public.models WHERE id = v_disc.model_id;
+    v_preview := left(v_comment.content, 100) || CASE WHEN length(v_comment.content) > 100 THEN '...' ELSE '' END;
+
+    IF v_comment.parent_comment_id IS NOT NULL THEN
+      -- A reply only notifies the author of the comment being answered
+      SELECT c.user_id INTO v_recipient FROM public.comments c WHERE c.id = v_comment.parent_comment_id;
+      IF v_recipient IS NOT NULL AND v_recipient <> v_caller THEN
+        INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name, related_discussion_id, metadata)
+        VALUES (v_recipient, 'comment_reply', v_caller_name || ' replied to your comment', '"' || v_preview || '"',
+                v_model.id, v_model.model_name, v_disc.id,
+                jsonb_build_object('replyAuthor', v_caller_name, 'commentPreview', v_comment.content, 'commentId', v_comment.id));
+        v_count := v_count + 1;
+      END IF;
+    ELSE
+      IF v_model.publisher_id <> v_caller THEN
+        INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name, related_discussion_id, metadata)
+        VALUES (v_model.publisher_id, 'new_comment', 'New Comment on ' || v_model.model_name,
+                v_caller_name || ': "' || v_preview || '"', v_model.id, v_model.model_name, v_disc.id,
+                jsonb_build_object('commenterName', v_caller_name, 'commentPreview', v_comment.content, 'commentId', v_comment.id));
+        v_count := v_count + 1;
+      END IF;
+      FOR v_recipient IN SELECT t.user_id FROM public.collaborator_user_ids(v_model.id) t LOOP
+        IF v_recipient <> v_caller AND v_recipient <> v_model.publisher_id THEN
+          INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name, related_discussion_id, metadata)
+          VALUES (v_recipient, 'new_comment', 'New Comment on ' || v_model.model_name,
+                  v_caller_name || ' commented on a model you collaborate on', v_model.id, v_model.model_name, v_disc.id,
+                  jsonb_build_object('commenterName', v_caller_name, 'commentPreview', v_comment.content, 'commentId', v_comment.id));
+          v_count := v_count + 1;
+        END IF;
+      END LOOP;
+    END IF;
+    RETURN v_count;
+
+  ELSIF p_event = 'rating' THEN
+    SELECT * INTO v_model FROM public.models WHERE id = p_ref;
+    SELECT r.rating_value INTO v_rating FROM public.ratings r WHERE r.model_id = p_ref AND r.user_id = v_caller;
+    IF v_model.id IS NULL OR v_rating IS NULL THEN
+      RAISE EXCEPTION 'No rating found' USING ERRCODE = '42501';
+    END IF;
+    -- One rating notification per rater per model every 10 minutes
+    IF EXISTS (
+      SELECT 1 FROM public.notifications n
+      WHERE n.related_model_id = p_ref AND n.notification_type = 'new_rating'
+        AND n.metadata ->> 'raterId' = v_caller::text AND n.created_at > now() - interval '10 minutes'
+    ) THEN
+      RETURN 0;
+    END IF;
+
+    IF v_model.publisher_id <> v_caller THEN
+      INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name, metadata)
+      VALUES (v_model.publisher_id, 'new_rating', 'New Rating for ' || v_model.model_name,
+              v_caller_name || ' rated your model ' || v_rating || ' star' || CASE WHEN v_rating <> 1 THEN 's' ELSE '' END,
+              v_model.id, v_model.model_name,
+              jsonb_build_object('raterName', v_caller_name, 'rating', v_rating, 'raterId', v_caller));
+      v_count := v_count + 1;
+    END IF;
+    FOR v_recipient IN SELECT t.user_id FROM public.collaborator_user_ids(v_model.id) t LOOP
+      IF v_recipient <> v_caller AND v_recipient <> v_model.publisher_id THEN
+        INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name, metadata)
+        VALUES (v_recipient, 'new_rating', 'New Rating for ' || v_model.model_name,
+                v_caller_name || ' rated a model you collaborate on ' || v_rating || ' star' || CASE WHEN v_rating <> 1 THEN 's' ELSE '' END,
+                v_model.id, v_model.model_name,
+                jsonb_build_object('raterName', v_caller_name, 'rating', v_rating, 'raterId', v_caller));
+        v_count := v_count + 1;
+      END IF;
+    END LOOP;
+    RETURN v_count;
+
+  ELSIF p_event = 'model_updated' THEN
+    SELECT * INTO v_model FROM public.models WHERE id = p_ref;
+    IF NOT FOUND OR NOT (public.is_model_owner(p_ref) OR public.is_collaborator_by_email(p_ref)) THEN
+      RAISE EXCEPTION 'Not allowed' USING ERRCODE = '42501';
+    END IF;
+
+    SELECT array_agg(DISTINCT f) INTO v_fields
+    FROM (
+      SELECT CASE WHEN jsonb_typeof(e) = 'object' THEN e ->> 'field' ELSE e #>> '{}' END AS f
+      FROM jsonb_array_elements(COALESCE(p_changes, '[]'::jsonb)) e
+    ) x
+    WHERE f = ANY(v_allowed_fields);
+
+    IF v_fields IS NULL THEN
+      RETURN 0;
+    END IF;
+
+    FOREACH v_field IN ARRAY v_fields LOOP
+      v_message := CASE v_field
+        WHEN 'name' THEN 'Model renamed to "' || v_model.model_name || '"'
+        WHEN 'version' THEN 'New version ' || v_model.version || ' released'
+        WHEN 'features' THEN 'Model features updated'
+        WHEN 'response_time' THEN 'Response time updated to ' || v_model.response_time || 'ms'
+        WHEN 'accuracy' THEN 'Accuracy updated to ' || v_model.accuracy || '%'
+        WHEN 'api_documentation' THEN 'API documentation has been updated'
+        WHEN 'subscription_type' THEN 'Subscription type changed to ' || v_model.subscription_type
+        WHEN 'subscription_price' THEN 'Subscription price changed to RM ' || COALESCE(v_model.subscription_amount::text, '0') || '/month'
+        WHEN 'detailed_description' THEN 'Detailed description has been updated'
+        WHEN 'short_description' THEN 'Model description has been updated'
+      END;
+
+      FOR v_recipient IN
+        SELECT s.buyer_id FROM public.subscriptions s
+        JOIN public.users u ON u.id = s.buyer_id
+        WHERE s.model_id = p_ref AND s.status = 'active' AND s.buyer_id <> v_caller
+      LOOP
+        INSERT INTO public.notifications (user_id, notification_type, title, message, related_model_id, related_model_name, metadata)
+        VALUES (v_recipient, 'model_updated', v_model.model_name || ' Updated', v_message, v_model.id, v_model.model_name,
+                jsonb_build_object('updatedField', v_field, 'updatedFields', jsonb_build_array(v_field)));
+        v_count := v_count + 1;
+      END LOOP;
+    END LOOP;
+    RETURN v_count;
+
+  ELSE
+    RAISE EXCEPTION 'Unknown event %', p_event USING ERRCODE = '22023';
+  END IF;
+END;
+$function$;
+
+REVOKE EXECUTE ON FUNCTION public.notify_event(text, uuid, jsonb) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.notify_event(text, uuid, jsonb) TO authenticated;

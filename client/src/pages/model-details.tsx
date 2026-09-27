@@ -1136,6 +1136,7 @@ export default function ModelDetailsPage() {
         modelName: model.name,
         publisherId: model.publisherId,
         discussionId: discussionId,
+        commentId: data.id,
         commenterName: userProfile?.name || "User",
         commenterId: user?.id || "",
         commentPreview: content,
