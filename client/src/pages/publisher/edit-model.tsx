@@ -731,9 +731,10 @@ export default function EditModelPage() {
 
         if (fileEntry.type === "upload" && fileEntry.file) {
           // Upload file to storage
+          // Store every file in the owner's folder so the owner can always manage it
           await uploadFileWithProgress(
             fileEntry.file,
-            user.id,
+            model.publisherId,
             modelId,
             fileEntry.description,
             (progress) => {

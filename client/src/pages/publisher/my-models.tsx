@@ -41,6 +41,7 @@ import { supabase } from "@/lib/supabase";
 import { Model } from "@/lib/types";
 import { transformDatabaseModels } from "@/lib/data-transforms";
 import { fetchModelStatistics } from "@/lib/api";
+import { getModelStoragePaths, removeStoredFiles } from "@/lib/file-upload";
 import { formatCount } from "@/lib/format-utils";
 import {
   DropdownMenu,
@@ -358,13 +359,23 @@ export default function MyModelsPage() {
       // Find the model name for the success message
       const model = myModels.find((m) => m.id === modelToDelete);
 
+      // Collect the model's stored files first; their records disappear with the model
+      const storedPaths = await getModelStoragePaths(modelToDelete);
+
       // Delete from database
-      const { error } = await supabase
+      const { data: deletedRows, error } = await supabase
         .from("models")
         .delete()
-        .eq("id", modelToDelete);
+        .eq("id", modelToDelete)
+        .select("id");
 
       if (error) throw error;
+      if (!deletedRows || deletedRows.length === 0) {
+        throw new Error("Only the owner of this model can delete it.");
+      }
+
+      // The model is gone; now remove its stored files
+      await removeStoredFiles(storedPaths);
 
       // Update local state to remove the deleted model from the UI
       // This avoids having to refetch all models from the database

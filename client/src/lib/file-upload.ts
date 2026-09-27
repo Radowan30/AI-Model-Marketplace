@@ -158,26 +158,63 @@ export async function saveExternalUrl(
  * Delete file from storage and database
  */
 export async function deleteFile(fileId: string, filePath?: string): Promise<void> {
-  // Delete from database
-  const { error: dbError } = await supabase
-    .from('model_files')
-    .delete()
-    .eq('id', fileId);
-
-  if (dbError) {
-    throw new Error(`Failed to delete file record: ${dbError.message}`);
-  }
-
-  // Delete from storage if it's an uploaded file
+  // Delete from storage first: permission to delete a file another team member
+  // uploaded is granted through its model_files record, which must still exist
   if (filePath) {
     const { error: storageError } = await supabase.storage
       .from(STORAGE_BUCKET)
       .remove([filePath]);
 
     if (storageError) {
-      console.error('Failed to delete file from storage:', storageError);
-      // Don't throw - file record is already deleted
+      throw new Error(`Failed to delete file from storage: ${storageError.message}`);
     }
+  }
+
+  // Delete from database
+  const { data: deletedRows, error: dbError } = await supabase
+    .from('model_files')
+    .delete()
+    .eq('id', fileId)
+    .select('id');
+
+  if (dbError) {
+    throw new Error(`Failed to delete file record: ${dbError.message}`);
+  }
+
+  if (!deletedRows || deletedRows.length === 0) {
+    throw new Error('You do not have permission to delete this file.');
+  }
+}
+
+/**
+ * Storage paths of a model's uploaded files. Collect them before deleting the
+ * model, because its file records are removed with it.
+ */
+export async function getModelStoragePaths(modelId: string): Promise<string[]> {
+  const { data: files, error } = await supabase
+    .from('model_files')
+    .select('file_path')
+    .eq('model_id', modelId)
+    .not('file_path', 'is', null);
+
+  if (error) {
+    throw new Error(`Failed to list model files: ${error.message}`);
+  }
+
+  return (files || []).map((f: any) => f.file_path).filter(Boolean);
+}
+
+/**
+ * Remove stored files after their model was deleted. Failures are logged but
+ * not thrown, because the model itself is already gone.
+ */
+export async function removeStoredFiles(paths: string[]): Promise<void> {
+  if (paths.length === 0) return;
+
+  const { error } = await supabase.storage.from(STORAGE_BUCKET).remove(paths);
+
+  if (error) {
+    console.error('Failed to delete model files from storage:', error);
   }
 }
 

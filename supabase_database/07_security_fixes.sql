@@ -432,3 +432,69 @@ WITH CHECK (
   AND is_custom = true
   AND char_length(btrim(name)) BETWEEN 1 AND 100
 );
+
+-- =====================================================
+-- SECTION 8: STORAGE (model-files bucket)
+-- =====================================================
+
+-- Owners upload into their own folder; collaborators into their own or the owner's
+-- folder; always under an existing model they manage.
+DROP POLICY IF EXISTS "Allow owners and collaborators to upload" ON storage.objects;
+CREATE POLICY "Allow owners and collaborators to upload"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (
+  bucket_id = 'model-files'
+  AND EXISTS (
+    SELECT 1 FROM public.models m
+    WHERE m.id::text = (storage.foldername(objects.name))[2]
+      AND (
+        (m.publisher_id = auth.uid() AND (storage.foldername(objects.name))[1] = auth.uid()::text)
+        OR (
+          public.is_collaborator_by_email(m.id)
+          AND (storage.foldername(objects.name))[1] IN (auth.uid()::text, m.publisher_id::text)
+        )
+      )
+  )
+);
+
+-- Owners, collaborators and active subscribers of the file's model can download
+DROP POLICY IF EXISTS "Allow owners, subscribers, and collaborators to download" ON storage.objects;
+CREATE POLICY "Allow owners, subscribers, and collaborators to download"
+ON storage.objects FOR SELECT
+TO authenticated
+USING (
+  bucket_id = 'model-files'
+  AND (
+    (storage.foldername(objects.name))[1] = auth.uid()::text
+    OR EXISTS (
+      SELECT 1 FROM public.model_files mf
+      WHERE mf.file_path = objects.name
+        AND (
+          public.is_model_owner(mf.model_id)
+          OR public.is_collaborator_by_email(mf.model_id)
+          OR EXISTS (
+            SELECT 1 FROM public.subscriptions s
+            WHERE s.model_id = mf.model_id AND s.buyer_id = auth.uid() AND s.status = 'active'
+          )
+        )
+    )
+  )
+);
+
+-- Owners and collaborators can delete any file registered to their model
+DROP POLICY IF EXISTS "Allow owners and collaborators to delete" ON storage.objects;
+CREATE POLICY "Allow owners and collaborators to delete"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (
+  bucket_id = 'model-files'
+  AND (
+    (storage.foldername(objects.name))[1] = auth.uid()::text
+    OR EXISTS (
+      SELECT 1 FROM public.model_files mf
+      WHERE mf.file_path = objects.name
+        AND (public.is_model_owner(mf.model_id) OR public.is_collaborator_by_email(mf.model_id))
+    )
+  )
+);
