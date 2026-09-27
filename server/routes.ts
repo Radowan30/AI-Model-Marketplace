@@ -1,129 +1,128 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { type Server } from "http";
+import type { User } from "@supabase/supabase-js";
 import { supabaseAdmin } from "./supabase-admin";
+
+// Every sign-in provider linked to an account (metadata and identities can disagree)
+function getProviders(user: User): string[] {
+  const providersFromMeta: string[] = user.app_metadata?.providers || [];
+  const providersFromIdentities = user.identities?.map((i) => i.provider) || [];
+  return Array.from(new Set([...providersFromMeta, ...providersFromIdentities]));
+}
+
+// Find an account by email, paging through the admin user list
+async function findUserByEmail(email: string): Promise<User | null> {
+  const perPage = 1000;
+  for (let page = 1; ; page++) {
+    const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage });
+    if (error) throw error;
+
+    const match = data.users.find((u) => u.email?.toLowerCase() === email);
+    if (match) return match;
+    if (data.users.length < perPage) return null;
+  }
+}
+
+// The signed-in user behind the request's Supabase access token, verified by Supabase Auth
+async function getRequestUser(req: Request): Promise<User | null> {
+  const header = req.headers.authorization || "";
+  const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+  if (!token) return null;
+
+  const { data, error } = await supabaseAdmin.auth.getUser(token);
+  if (error || !data.user) return null;
+  return data.user;
+}
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // API route to add password to Google-only account
-  app.post("/api/auth/add-password", async (req, res) => {
+  // Tells the sign-up form whether an email belongs to a Google-only account.
+  // Read-only: it never changes an account, and unknown emails get the same
+  // answer as accounts that already have a password.
+  app.post("/api/auth/account-status", async (req, res) => {
+    const email =
+      typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+
+    if (!email) {
+      return res.status(400).json({ error: "Email is required" });
+    }
+
     try {
-      const { email, password } = req.body;
-
-      if (!email || !password) {
-        return res.status(400).json({
-          success: false,
-          error: "Email and password are required"
-        });
-      }
-
-      // Get user by email using getUserByEmail
-      let existingUser;
-      try {
-        const { data: { users }, error: listError } = await supabaseAdmin.auth.admin.listUsers();
-
-        if (listError) {
-          console.error("Error listing users:", listError);
-          return res.status(500).json({
-            success: false,
-            error: "Failed to check user status"
-          });
-        }
-
-        existingUser = users?.find(u => u.email === email);
-      } catch (err) {
-        console.error("Error finding user:", err);
-        return res.status(500).json({
-          success: false,
-          error: "Failed to find user"
-        });
-      }
-
-      if (!existingUser) {
-        console.log(`User with email ${email} not found`);
-        return res.status(404).json({
-          success: false,
-          error: "User not found"
-        });
-      }
-
-      console.log(`Found user ${existingUser.id} with email ${email}`);
-      console.log(`User providers:`, existingUser.app_metadata?.providers);
-      console.log(`User identities:`, existingUser.identities?.map(i => i.provider));
-
-      // Check providers from both app_metadata and identities
-      const providersFromMeta = existingUser.app_metadata?.providers || [];
-      const providersFromIdentities = existingUser.identities?.map((i: any) => i.provider) || [];
-
-      // Combine both sources of provider information
-      const allProviders = Array.from(new Set([...providersFromMeta, ...providersFromIdentities]));
-
-      console.log(`All providers for user:`, allProviders);
-
-      // Check if user has Google but not email
-      const hasGoogle = allProviders.includes('google');
-      const hasEmail = allProviders.includes('email');
-
-      if (!hasGoogle) {
-        console.log(`User does not have Google provider`);
-        return res.status(400).json({
-          success: false,
-          error: "User doesn't have Google authentication"
-        });
-      }
-
-      if (hasEmail) {
-        console.log(`User already has email provider`);
-        return res.status(400).json({
-          success: false,
-          error: "User already has email/password authentication"
-        });
-      }
-
-      console.log(`User has Google-only authentication, adding password...`);
-
-      // Step 1: Update user password
-      const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(
-        existingUser.id,
-        { password }
-      );
-
-      if (updateError) {
-        console.error("Error updating user password:", updateError);
-        return res.status(500).json({
-          success: false,
-          error: `Failed to add password: ${updateError.message}`
-        });
-      }
-
-      console.log(`Successfully added password for user ${existingUser.id}`);
-
-      // Step 2: Add email identity to the user
-      // This creates the actual identity record in auth.identities table
-      const { error: identityError } = await supabaseAdmin.rpc('add_email_identity_to_user', {
-        p_user_id: existingUser.id
-      });
-
-      if (identityError) {
-        console.error("Error adding email identity:", identityError);
-        // Don't fail the request - password is already set
-        // The user can still log in with email/password
-        console.log("Warning: Email identity not created, but password is set");
-      } else {
-        console.log(`Successfully added email identity for user ${existingUser.id}`);
-      }
+      const user = await findUserByEmail(email);
+      const providers = user ? getProviders(user) : [];
 
       return res.json({
-        success: true,
-        userId: existingUser.id
+        googleOnly: providers.includes("google") && !providers.includes("email"),
       });
+    } catch (error) {
+      console.error("Error checking account status:", error);
+      return res.status(500).json({ error: "Failed to check account status" });
+    }
+  });
 
+  // Finishes adding email/password sign-in to a Google account. The caller must
+  // be signed in as that account (via the verification link emailed from the
+  // sign-up form), so it can only ever act on the caller's own account.
+  app.post("/api/auth/link-email-identity", async (req, res) => {
+    try {
+      const user = await getRequestUser(req);
+      if (!user) {
+        return res.status(401).json({ success: false, error: "Not authenticated" });
+      }
+
+      const providers = getProviders(user);
+      let identityLinked = false;
+
+      if (providers.includes("google") && !providers.includes("email")) {
+        const { error: identityError } = await supabaseAdmin.rpc("add_email_identity_to_user", {
+          p_user_id: user.id,
+        });
+
+        if (identityError) {
+          // The password is already set, so email sign-in still works
+          console.error("Error adding email identity:", identityError);
+        } else {
+          identityLinked = true;
+        }
+      }
+
+      // Add the portal role the user was registering for, if they don't have it yet
+      let roleAdded = false;
+      const role = req.body?.role;
+
+      if (role === "buyer" || role === "publisher") {
+        const { data: roleRow, error: roleError } = await supabaseAdmin
+          .from("roles")
+          .select("id")
+          .eq("role_name", role)
+          .single();
+
+        if (roleError || !roleRow) {
+          console.error("Error finding role:", roleError);
+        } else {
+          const { error: userRoleError } = await supabaseAdmin
+            .from("user_roles")
+            .upsert(
+              { user_id: user.id, role_id: roleRow.id },
+              { onConflict: "user_id,role_id", ignoreDuplicates: true }
+            );
+
+          if (userRoleError) {
+            console.error("Error adding role:", userRoleError);
+          } else {
+            roleAdded = true;
+          }
+        }
+      }
+
+      return res.json({ success: true, identityLinked, roleAdded });
     } catch (error: any) {
-      console.error("Server error in add-password:", error);
+      console.error("Server error in link-email-identity:", error);
       return res.status(500).json({
         success: false,
-        error: error.message || "Internal server error"
+        error: "Internal server error",
       });
     }
   });

@@ -107,6 +107,38 @@ export default function ResetPasswordPage() {
 
       if (error) throw error;
 
+      // A Google-only account that reached this page through the verification
+      // link from sign-up now has a password; link the email sign-in method so
+      // it behaves like any email/password account, and add the portal role
+      // they were registering for.
+      const { data: { user: updatedUser } } = await supabase.auth.getUser();
+      const identities = updatedUser?.identities || [];
+      const isGoogleOnly =
+        identities.some((identity) => identity.provider === 'google') &&
+        !identities.some((identity) => identity.provider === 'email');
+      const pendingRole = localStorage.getItem('pendingPasswordRole');
+      localStorage.removeItem('pendingPasswordRole');
+
+      if (isGoogleOnly) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const response = await fetch('/api/auth/link-email-identity', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session?.access_token ?? ''}`,
+            },
+            body: JSON.stringify({ role: pendingRole }),
+          });
+          if (!response.ok) {
+            console.error('Error linking email sign-in:', response.status);
+          }
+        } catch (linkError) {
+          // The password is already set, so email sign-in still works
+          console.error('Error linking email sign-in:', linkError);
+        }
+      }
+
       toast({
         title: "Password updated!",
         description: "Your password has been successfully reset. You can now log in.",
