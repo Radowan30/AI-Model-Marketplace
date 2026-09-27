@@ -236,3 +236,114 @@ ALTER TABLE public.comments
   DROP CONSTRAINT IF EXISTS comments_parent_comment_id_fkey,
   ADD CONSTRAINT comments_parent_comment_id_fkey
     FOREIGN KEY (parent_comment_id) REFERENCES public.comments(id) ON DELETE SET NULL;
+
+-- =====================================================
+-- SECTION 5: VIEWS, DOWNLOADS AND ACTIVITY STATISTICS
+-- =====================================================
+
+-- Only signed-in users record views, only as themselves, once per model
+DROP POLICY IF EXISTS "Anyone can track views" ON public.views;
+CREATE POLICY "Signed-in users record their own views"
+ON public.views FOR INSERT
+TO authenticated
+WITH CHECK (user_id = auth.uid());
+
+-- Who viewed what is private; totals come from the functions below
+DROP POLICY IF EXISTS "Enable read access for all users" ON public.views;
+CREATE POLICY "Users can read their own views"
+ON public.views FOR SELECT
+TO authenticated
+USING (user_id = auth.uid());
+
+CREATE UNIQUE INDEX IF NOT EXISTS views_one_per_user_per_model
+  ON public.views (model_id, user_id) WHERE user_id IS NOT NULL;
+
+-- Only users with file access can log a download, so download counts can't be inflated
+DROP POLICY IF EXISTS "Authenticated users can insert activities" ON public.user_activities;
+CREATE POLICY "Users log their own activities"
+ON public.user_activities FOR INSERT
+WITH CHECK (
+  auth.uid() = user_id
+  AND (
+    activity_type <> 'downloaded'
+    OR (
+      model_id IS NOT NULL
+      AND (
+        public.is_model_owner(model_id)
+        OR public.is_collaborator_by_email(model_id)
+        OR EXISTS (
+          SELECT 1 FROM public.subscriptions s
+          WHERE s.model_id = user_activities.model_id
+            AND s.buyer_id = auth.uid() AND s.status = 'active'
+        )
+      )
+    )
+  )
+);
+
+-- Activities are never edited by the app; editing could forge download records
+DROP POLICY IF EXISTS "Users can update own activities" ON public.user_activities;
+
+-- View totals for models the caller can see
+CREATE OR REPLACE FUNCTION public.get_model_view_stats(p_model_ids uuid[])
+ RETURNS TABLE (model_id uuid, total_views bigint, views_30_days bigint)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path = public
+AS $function$
+  SELECT v.model_id,
+         count(*),
+         count(*) FILTER (WHERE v.timestamp >= now() - interval '30 days')
+  FROM public.views v
+  JOIN public.models m ON m.id = v.model_id
+  WHERE v.model_id = ANY(p_model_ids)
+    AND (m.status = 'published' OR m.publisher_id = auth.uid() OR public.is_collaborator_by_email(m.id))
+  GROUP BY v.model_id
+$function$;
+
+-- View timestamps (no viewer identity) for the model team's weekly chart
+CREATE OR REPLACE FUNCTION public.get_model_view_timestamps(p_model_ids uuid[], p_since timestamptz)
+ RETURNS TABLE (model_id uuid, viewed_at timestamptz)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path = public
+AS $function$
+  SELECT v.model_id, v.timestamp
+  FROM public.views v
+  WHERE v.model_id = ANY(p_model_ids)
+    AND v.timestamp >= p_since
+    AND (public.is_model_owner(v.model_id) OR public.is_collaborator_by_email(v.model_id))
+$function$;
+
+-- Download totals across all users, for models the caller can see
+CREATE OR REPLACE FUNCTION public.get_model_download_counts(p_model_ids uuid[])
+ RETURNS TABLE (model_id uuid, downloads bigint)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path = public
+AS $function$
+  SELECT ua.model_id, count(*)
+  FROM public.user_activities ua
+  JOIN public.models m ON m.id = ua.model_id
+  WHERE ua.activity_type = 'downloaded'
+    AND ua.model_id = ANY(p_model_ids)
+    AND (m.status = 'published' OR m.publisher_id = auth.uid() OR public.is_collaborator_by_email(m.id))
+  GROUP BY ua.model_id
+$function$;
+
+-- Subscriber totals for models the caller can see (each buyer can only read their own row)
+CREATE OR REPLACE FUNCTION public.get_model_subscriber_counts(p_model_ids uuid[])
+ RETURNS TABLE (model_id uuid, active_subscribers bigint, total_subscribers bigint)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path = public
+AS $function$
+  SELECT s.model_id,
+         count(*) FILTER (WHERE s.status = 'active'),
+         count(*)
+  FROM public.subscriptions s
+  JOIN public.models m ON m.id = s.model_id
+  WHERE s.model_id = ANY(p_model_ids)
+    AND (m.status = 'published' OR m.publisher_id = auth.uid() OR public.is_collaborator_by_email(m.id))
+  GROUP BY s.model_id
+$function$;

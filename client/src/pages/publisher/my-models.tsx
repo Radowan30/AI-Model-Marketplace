@@ -40,6 +40,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { Model } from "@/lib/types";
 import { transformDatabaseModels } from "@/lib/data-transforms";
+import { fetchModelStatistics } from "@/lib/api";
 import { formatCount } from "@/lib/format-utils";
 import {
   DropdownMenu,
@@ -184,49 +185,11 @@ export default function MyModelsPage() {
           return;
         }
 
-        // STEP 5: Fetch statistics for all models
-        // Extract all model IDs so we can query views and downloads for all of them at once
+        // STEP 5 & 6: Fetch all-time view and download totals for all models at once
+        // (totals come from database functions; individual views and downloads are private)
         const modelIds = data.map((m) => m.id);
-
-        // Query the 'views' table to count how many times each model was viewed
-        // This gives us all-time view counts (not just recent)
-        const { data: allViews, error: viewsError } = await supabase
-          .from("views")
-          .select("model_id")
-          .in("model_id", modelIds);
-
-        if (viewsError) {
-          console.error("Error fetching views:", viewsError);
-        }
-
-        // Query the 'user_activities' table to count downloads
-        // We filter by activity_type = 'downloaded' to only get download events
-        const { data: allDownloads, error: downloadsError } = await supabase
-          .from("user_activities")
-          .select("model_id")
-          .in("model_id", modelIds)
-          .eq("activity_type", "downloaded");
-
-        if (downloadsError) {
-          console.error("Error fetching downloads:", downloadsError);
-        }
-
-        // STEP 6: Count views and downloads for each model
-        // We create lookup objects (dictionaries) to store counts by model ID
-        const viewsByModel: { [key: string]: number } = {};
-        const downloadsByModel: { [key: string]: number } = {};
-
-        // Loop through each view record and increment the count for that model
-        // The (viewsByModel[view.model_id] || 0) pattern means "get current count, or 0 if first time"
-        (allViews || []).forEach((view: any) => {
-          viewsByModel[view.model_id] = (viewsByModel[view.model_id] || 0) + 1;
-        });
-
-        // Do the same for downloads
-        (allDownloads || []).forEach((download: any) => {
-          downloadsByModel[download.model_id] =
-            (downloadsByModel[download.model_id] || 0) + 1;
-        });
+        const { viewsByModel, downloadsByModel } =
+          await fetchModelStatistics(modelIds);
 
         // STEP 7: Attach the statistics and transform nested categories
         // We use the spread operator (...model) to copy all existing fields,
